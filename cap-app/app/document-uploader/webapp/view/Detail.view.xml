@@ -1,0 +1,203 @@
+<mvc:View
+    controllerName="com.docextractor.uploader.controller.Detail"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:f="sap.f"
+    xmlns:core="sap.ui.core"
+    xmlns:layout="sap.ui.layout"
+    displayBlock="true"
+    height="100%">
+    
+    <Page id="detailPage" 
+          title="Document Details" 
+          showNavButton="true"
+          navButtonPress=".onNavBack">
+        <content>
+            <VBox class="sapUiSmallMargin" width="100%">
+                <!-- Document Info Card -->
+                <f:Card width="100%">
+                    <f:header>
+                        <f:CardHeader title="Document Information" subtitle="{fileName}"/>
+                    </f:header>
+                    <f:content>
+                        <VBox class="sapUiSmallMargin">
+                            <layout:Grid
+                                defaultSpan="XL6 L6 M6 S12"
+                                hSpacing="1"
+                                width="100%">
+                                <layout:content>
+                                    <VBox>
+                                        <Label text="Document Type" design="Bold"/>
+                                        <Text text="{documentType}"/>
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Document Number" design="Bold"/>
+                                        <Text text="{documentNumber}"/>
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Document Date" design="Bold"/>
+                                        <Text text="{documentDate}"/>
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Status" design="Bold"/>
+                                        <ObjectStatus
+                                            text="{status}"
+                                            state="{= ${status} === 'COMPLETED' ? 'Success' : ${status} === 'ERROR' ? 'Error' : 'Warning' }"/>
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Uploaded" design="Bold"/>
+                                        <Text text="{uploadDate}"/>
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Processed" design="Bold"/>
+                                        <Text text="{processedDate}"/>
+                                    </VBox>
+                                </layout:content>
+                            </layout:Grid>
+                        </VBox>
+                    </f:content>
+                </f:Card>
+                
+                <!-- Tabs for Detailed Information -->
+                <IconTabBar id="idIconTabBar" class="sapUiMediumMarginTop" expandable="false">
+                    <items>
+                        <IconTabFilter icon="sap-icon://supplier" text="Vendor">
+                            <f:Card width="100%">
+                                <f:content>
+                                    <VBox class="sapUiSmallMargin">
+                                        <layout:Grid defaultSpan="XL6 L6 M6 S12" hSpacing="1">
+                                            <layout:content>
+                                                <VBox>
+                                                    <Label text="Name" design="Bold"/>
+                                                    <Text text="{vendorInfo/name}"/>
+                                                </VBox>
+                                                <VBox>
+                                                    <Label text="Address" design="Bold"/>
+                                                    <Text text="{vendorInfo/address}"/>
+                                                </VBox>
+                                                <VBox>
+                                                    <Label text="Contact Info" design="Bold"/>
+                                                    <Text text="{vendorInfo/contactInfo}"/>
+                                                </VBox>
+                                            </layout:content>
+                                        </layout:Grid>
+                                    </VBox>
+                                </f:content>
+                            </f:Card>
+                        </IconTabFilter>
+                        
+                        <IconTabFilter icon="sap-icon://customer" text="Customer">
+                            <f:Card width="100%">
+                                <f:content>
+                                    <VBox class="sapUiSmallMargin">
+                                        <layout:Grid defaultSpan="XL6 L6 M6 S12" hSpacing="1">
+                                            <layout:content>
+                                                <VBox>
+                                                    <Label text="Name" design="Bold"/>
+                                                    <Text text="{customerInfo/name}"/>
+                                                </VBox>
+                                                <VBox>
+                                                    <Label text="Address" design="Bold"/>
+                                                    <Text text="{customerInfo/address}"/>
+                                                </VBox>
+                                                <VBox>
+                                                    <Label text="Contact Info" design="Bold"/>
+                                                    <Text text="{customerInfo/contactInfo}"/>
+                                                </VBox>
+                                            </layout:content>
+                                        </layout:Grid>
+                                    </VBox>
+                                </f:content>
+                            </f:Card>
+                        </IconTabFilter>
+                        
+                        <IconTabFilter icon="sap-icon://list" text="Line Items">
+                            <Table
+                                id="lineItemsTable"
+                                items="{lineItems}"
+                                growing="true"
+                                growingThreshold="10">
+                                <columns>
+                                    <Column>
+                                        <Text text="Item Number"/>
+                                    </Column>
+                                    <Column>
+                                        <Text text="Description"/>
+                                    </Column>
+                                    <Column hAlign="End">
+                                        <Text text="Quantity"/>
+                                    </Column>
+                                    <Column hAlign="End">
+                                        <Text text="Unit"/>
+                                    </Column>
+                                    <Column hAlign="End">
+                                        <Text text="Unit Cost"/>
+                                    </Column>
+                                    <Column hAlign="End">
+                                        <Text text="Amount"/>
+                                    </Column>
+                                </columns>
+                                <items>
+                                    <ColumnListItem>
+                                        <cells>
+                                            <Text text="{itemNumber}"/>
+                                            <Text text="{description}"/>
+                                            <Text text="{quantity}"/>
+                                            <Text text="{unitMeasure}"/>
+                                            <Text text="{
+                                                path: 'unitCost',
+                                                formatter: '.formatter.currency'
+                                            }"/>
+                                            <Text text="{
+                                                path: 'amount',
+                                                formatter: '.formatter.currency'
+                                            }"/>
+                                        </cells>
+                                    </ColumnListItem>
+                                </items>
+                            </Table>
+                        </IconTabFilter>
+                        
+                        <IconTabFilter icon="sap-icon://payment-approval" text="Payment">
+                            <f:Card width="100%">
+                                <f:content>
+                                    <VBox class="sapUiSmallMargin">
+                                        <layout:Grid defaultSpan="XL6 L6 M6 S12" hSpacing="1">
+                                            <layout:content>
+                                                <VBox>
+                                                    <Label text="Terms" design="Bold"/>
+                                                    <Text text="{paymentInfo/terms}"/>
+                                                </VBox>
+                                                <VBox>
+                                                    <Label text="Date Required" design="Bold"/>
+                                                    <Text text="{paymentInfo/dateRequired}"/>
+                                                </VBox>
+                                                <VBox>
+                                                    <Label text="Additional Info" design="Bold"/>
+                                                    <Text text="{paymentInfo/additionalInfo}"/>
+                                                </VBox>
+                                            </layout:content>
+                                        </layout:Grid>
+                                    </VBox>
+                                </f:content>
+                            </f:Card>
+                        </IconTabFilter>
+                        
+                        <IconTabFilter icon="sap-icon://document-text" text="Raw Data">
+                            <f:Card width="100%">
+                                <f:content>
+                                    <CodeEditor
+                                        id="rawDataEditor"
+                                        type="json"
+                                        value="{rawExtraction}"
+                                        height="600px"
+                                        editable="false"/>
+                                </f:content>
+                            </f:Card>
+                        </IconTabFilter>
+                    </items>
+                </IconTabBar>
+            </VBox>
+        </content>
+    </Page>
+</mvc:View>

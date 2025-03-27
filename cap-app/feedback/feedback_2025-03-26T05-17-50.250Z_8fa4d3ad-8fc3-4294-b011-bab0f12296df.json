@@ -1,0 +1,95 @@
+{
+  "documentId": "907136b2-c306-4419-93d9-ed3be825cba3",
+  "comments": "This invoice actually has some comments saying send confirmation to kevin.howell@bldr.com, as part of the line items under description, which needs to be captured under contact info .",
+  "problemFields": [],
+  "customPrompt": "This invoice actually has some comments saying send confirmation to kevin.howell@bldr.com, as part of the line items under description, which needs to be captured under contact info .",
+  "extractionData": {
+    "document_type": "Purchase Order",
+    "document_number": "40443439",
+    "date": "03-14-25",
+    "vendor_information": {
+      "name": "JAMES HARDIE BLDG PRODUCTS",
+      "address": "26300 LA ALAMEDA SUITE 400 MISSION VIEJO, CA 92691"
+    },
+    "customer_information": {
+      "name": "BUILDERS FIRSTSOURCE",
+      "address": "11501 RYLAND CT ORLANDO, FL 32824",
+      "phone": "(407) 32824"
+    },
+    "amounts": {
+      "total": 25317.82,
+      "landed_total": 25317.82
+    },
+    "line_items": [
+      {
+        "item_number": "410SMHPP",
+        "quantity": 200,
+        "unit_measure": "EA",
+        "description": "5/16 4X10 SMOOTH HARDI PNL PR HARDI PANEL SMOOTH PRIMED",
+        "unit_cost": 1298,
+        "amount": 10384
+      },
+      {
+        "item_number": "HZ1054612SEST",
+        "quantity": 680,
+        "unit_measure": "EA",
+        "description": "TRM 5/4 PR SE SM HZ10 5.5X12 5/4\"X5.5\"X12' SMOOTH 9000034",
+        "unit_cost": 3993,
+        "amount": 14933.82
+      }
+    ],
+    "payment_information": {
+      "terms": "1%5/25TH",
+      "ship_via": "TRUCK",
+      "confirming": "CONFIRMING ONLY"
+    },
+    "confidence": {
+      "document_type": 1,
+      "document_number": 1,
+      "date": 1,
+      "vendor_information": {
+        "name": 0.95,
+        "address": 0.95
+      },
+      "customer_information": {
+        "name": 0.95,
+        "address": 0.95,
+        "phone": 0.9
+      },
+      "amounts": {
+        "total": 1,
+        "landed_total": 1
+      },
+      "line_items": [
+        {
+          "item_number": 1,
+          "quantity": 1,
+          "unit_measure": 1,
+          "description": 0.95,
+          "unit_cost": 1,
+          "amount": 1
+        },
+        {
+          "item_number": 1,
+          "quantity": 1,
+          "unit_measure": 1,
+          "description": 0.95,
+          "unit_cost": 1,
+          "amount": 1
+        }
+      ],
+      "payment_information": {
+        "terms": 1,
+        "ship_via": 1,
+        "confirming": 1
+      }
+    },
+    "documentId": "907136b2-c306-4419-93d9-ed3be825cba3",
+    "documentStatus": {
+      "text": "Processed",
+      "state": "Success",
+      "icon": "sap-icon://document"
+    }
+  },
+  "feedbackId": "8fa4d3ad-8fc3-4294-b011-bab0f12296df"
+}

@@ -1,0 +1,114 @@
+<mvc:View
+    controllerName="com.docextractor.uploader.controller.Main"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:f="sap.f"
+    xmlns:core="sap.ui.core"
+    xmlns:upload="sap.m.upload"
+    displayBlock="true"
+    height="100%">
+    
+    <Page id="page" title="{i18n>title}">
+        <content>
+            <VBox class="sapUiSmallMargin" width="100%">
+                <f:Card width="100%">
+                    <f:header>
+                        <f:CardHeader title="Upload Document" subtitle="Upload a document for information extraction"/>
+                    </f:header>
+                    <f:content>
+                        <VBox class="sapUiSmallMargin">
+                            <upload:UploadSet
+                                id="uploadSet"
+                                maxFileSize="10"
+                                maxFileNameLength="100"
+                                uploadEnabled="false"
+                                instantUpload="false"
+                                showIcons="true"
+                                terminationEnabled="true">
+                                <upload:toolbar>
+                                    <OverflowToolbar>
+                                        <ToolbarSpacer/>
+                                        <Button
+                                            id="uploadButton"
+                                            text="Upload"
+                                            type="Emphasized"
+                                            icon="sap-icon://upload"
+                                            press=".onUploadButtonPress"/>
+                                    </OverflowToolbar>
+                                </upload:toolbar>
+                            </upload:UploadSet>
+                        </VBox>
+                    </f:content>
+                </f:Card>
+                
+                <f:Card width="100%" class="sapUiMediumMarginTop">
+                    <f:header>
+                        <f:CardHeader title="Document List" subtitle="Uploaded and processed documents"/>
+                    </f:header>
+                    <f:content>
+                        <Table
+                            id="documentsTable"
+                            items="{
+                                path: '/Documents',
+                                sorter: {
+                                    path: 'uploadDate',
+                                    descending: true
+                                }
+                            }"
+                            growing="true"
+                            growingThreshold="10"
+                            growingScrollToLoad="true">
+                            <columns>
+                                <Column width="20%">
+                                    <Text text="Document"/>
+                                </Column>
+                                <Column width="15%">
+                                    <Text text="Type"/>
+                                </Column>
+                                <Column width="15%">
+                                    <Text text="Number"/>
+                                </Column>
+                                <Column width="15%">
+                                    <Text text="Date"/>
+                                </Column>
+                                <Column width="15%">
+                                    <Text text="Status"/>
+                                </Column>
+                                <Column width="20%">
+                                    <Text text="Actions"/>
+                                </Column>
+                            </columns>
+                            <items>
+                                <ColumnListItem type="Navigation" press=".onDocumentPress">
+                                    <cells>
+                                        <Text text="{fileName}"/>
+                                        <Text text="{documentType}"/>
+                                        <Text text="{documentNumber}"/>
+                                        <Text text="{documentDate}"/>
+                                        <ObjectStatus
+                                            text="{status}"
+                                            state="{= ${status} === 'COMPLETED' ? 'Success' : ${status} === 'ERROR' ? 'Error' : 'Warning' }"/>
+                                        <HBox>
+                                            <Button
+                                                icon="sap-icon://detail-view"
+                                                tooltip="View Details"
+                                                press=".onDocumentPress"
+                                                class="sapUiTinyMarginEnd"/>
+                                            <Button
+                                                icon="sap-icon://activate"
+                                                tooltip="Process Document"
+                                                press=".onProcessDocument"
+                                                enabled="{= ${status} === 'UPLOADED' }"
+                                                visible="{= ${status} === 'UPLOADED' }"
+                                                class="sapUiTinyMarginEnd"/>
+                                        </HBox>
+                                    </cells>
+                                </ColumnListItem>
+                            </items>
+                        </Table>
+                    </f:content>
+                </f:Card>
+            </VBox>
+        </content>
+    </Page>
+</mvc:View>

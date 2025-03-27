@@ -1,0 +1,16 @@
+{
+  "welcomeFile": "/document-uploader/webapp/index.html",
+  "authenticationMethod": "none",
+  "routes": [
+    {
+      "source": "^/document-uploader/(.*)$",
+      "target": "$1",
+      "localDir": "app/document-uploader/webapp"
+    },
+    {
+      "source": "^/odata/v4/document/(.*)$",
+      "target": "/odata/v4/document/$1",
+      "destination": "api"
+    }
+  ]
+}

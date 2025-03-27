@@ -1,0 +1,2260 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fiori Document Extractor</title>
+    
+    <!-- Load UI5 with explicit version -->
+    <script id="sap-ui-bootstrap"
+        src="https://sapui5.hana.ondemand.com/1.120.5/resources/sap-ui-core.js"
+        data-sap-ui-theme="sap_horizon"
+        data-sap-ui-libs="sap.m, sap.ui.layout, sap.f, sap.ui.table"
+        data-sap-ui-compatVersion="edge"
+        data-sap-ui-flexEnabled="true"
+        data-sap-ui-async="true"
+        data-sap-ui-resourceroots='{"docextractor": "./"}'
+        data-sap-ui-onInit="initApp">
+    </script>
+    
+    <style>
+        .file-upload-container {
+            margin-bottom: 20px;
+        }
+        .result-container {
+            margin-top: 20px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .btn-container {
+            margin-top: 10px;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+        }
+        #hiddenFileInputContainer {
+            /* Ensure the container is in the DOM but not visible */
+            height: 0;
+            width: 0;
+            overflow: hidden;
+        }
+        .sapUiFormResGrid > div {
+            padding: 1rem;
+        }
+        .lineItemsPanel .sapMPanelContent {
+            padding: 0;
+        }
+        .sapMTitle {
+            margin-top: 1rem;
+        }
+        .section-title {
+            font-size: 16px;
+            color: #0a6ed1;
+            font-weight: bold;
+            padding-top: 16px;
+        }
+        .edit-button {
+            cursor: pointer;
+            color: #0854a0;
+            margin-left: 0.5rem;
+        }
+        .edit-button:hover {
+            color: #0a6ed1;
+        }
+        .form-field-container {
+            display: flex;
+            align-items: center;
+        }
+        .form-field-container .sapMInputBaseInner[readonly] {
+            background-color: transparent;
+            border: none;
+            cursor: default;
+        }
+        .form-field-container .sapMTextAreaInner[readonly] {
+            background-color: transparent;
+            border: none;
+            cursor: default;
+        }
+        .form-field-container .sapMObjStatus, .sapMHBox .sapMObjStatus {
+            margin-left: 8px;
+        }
+        
+        /* Set a minimum width for confidence indicators */
+        .sapMObjStatus {
+            min-width: 45px;
+        }
+    </style>
+    
+    <!-- Application initialization -->
+    <script>
+        // Add error handling for UI5 loading
+        window.addEventListener('error', function(e) {
+            console.error('UI5 loading error:', e.message);
+            document.getElementById('content').innerHTML = 
+                '<div style="color:red;padding:20px;">Error loading UI5: ' + e.message + '</div>';
+        });
+        
+        // Helper function to create field without confidence indicator (for now)
+        function createEditableField(fieldType, bindingPath, confidencePath, props) {
+            // Create field based on type (Input, TextArea, etc)
+            var field;
+            
+            // By default, make all fields not editable (readonly) at first
+            var defaultProps = {
+                editable: false
+            };
+            
+            switch(fieldType) {
+                case "Input":
+                    field = new sap.m.Input(Object.assign({
+                        value: bindingPath,
+                        width: "350px"
+                    }, defaultProps, props || {}));
+                    break;
+                    
+                case "TextArea":
+                    field = new sap.m.TextArea(Object.assign({
+                        value: bindingPath,
+                        rows: 3,
+                        width: "500px"
+                    }, defaultProps, props || {}));
+                    break;
+                    
+                case "DatePicker":
+                    field = new sap.m.DatePicker(Object.assign({
+                        value: bindingPath,
+                        valueFormat: "yyyy-MM-dd",
+                        displayFormat: "long",
+                        width: "350px"
+                    }, defaultProps, props || {}));
+                    break;
+                    
+                default:
+                    field = new sap.m.Input(Object.assign({
+                        value: bindingPath,
+                        width: "350px"
+                    }, defaultProps, props || {}));
+            }
+                    
+            // Add additional event handlers for changes
+            if (fieldType === "Input" || fieldType === "TextArea") {
+                field.attachChange(function(oEvent) {
+                    // When the field is changed, update the model
+                    console.log("Field changed:", bindingPath, "new value:", oEvent.getParameter("value"));
+                    
+                    // If this is a line item field, recalculate totals
+                    if (bindingPath.indexOf("line_items") > -1) {
+                        recalculateTotals();
+                    }
+                });
+            }
+            
+            // Return the field
+            return field;
+        }
+        
+        function initApp() {
+            try {
+                console.log("Initializing UI5 application...");
+                
+                // Create a shell container for Fiori launchpad-like experience
+                var oShell = new sap.m.Shell({
+                    appWidthLimited: false,
+                    app: new sap.m.App("myApp", {
+                        initialPage: "page1"
+                    })
+                });
+                
+                // Create a hidden file input immediately
+                var fileInputContainer = document.createElement("div");
+                fileInputContainer.id = "hiddenFileInputContainer";
+                document.body.appendChild(fileInputContainer);
+                
+                var fileInput = document.createElement("input");
+                fileInput.type = "file";
+                fileInput.id = "fileInput";
+                fileInput.name = "file"; // Important: name must match what server expects
+                fileInput.accept = ".pdf,.jpg,.jpeg,.png";
+                fileInputContainer.appendChild(fileInput);
+                
+                // Create an ObjectHeader to display document info
+                var oObjectHeader = new sap.m.ObjectHeader("objectHeader", {
+                    title: "No Document Loaded",
+                    visible: false,
+                    statuses: [
+                        new sap.m.ObjectStatus({
+                            text: "{/documentStatus/text}",
+                            state: "{/documentStatus/state}",
+                            icon: "{/documentStatus/icon}"
+                        })
+                    ],
+                    attributes: [
+                        new sap.m.ObjectAttribute({
+                            title: "Document Number",
+                            text: "{/document_number}"
+                        }),
+                        new sap.m.ObjectAttribute({
+                            title: "Date",
+                            text: "{/date}"
+                        })
+                    ]
+                });
+                
+                // Create an Upload Form
+                var oUploadForm = new sap.ui.layout.form.SimpleForm({
+                    editable: true,
+                    layout: "ResponsiveGridLayout",
+                    labelSpanXL: 4,
+                    labelSpanL: 4,
+                    labelSpanM: 4,
+                    labelSpanS: 12,
+                    columnsXL: 1,
+                    columnsL: 1,
+                    columnsM: 1,
+                    title: "Document Upload",
+                    content: [
+                        new sap.m.Label({text: "Select Document"}),
+                        new sap.m.HBox({
+                            items: [
+                                new sap.m.Input("filePathInput", {
+                                    placeholder: "Select a PDF, JPG or PNG file",
+                                    editable: false,
+                                    width: "300px"
+                                }),
+                                new sap.m.Button({
+                                    text: "Browse...",
+                                    press: function() {
+                                        // Clear any previous file selection to ensure change event
+                                        fileInput.value = "";
+                                        fileInput.click();
+                                    }
+                                })
+                            ]
+                        }),
+                        new sap.m.Label({text: ""}),
+                        new sap.m.HBox({
+                            items: [
+                                new sap.m.Button("uploadButton", {
+                                    text: "Upload & Process",
+                                    type: "Emphasized",
+                                    press: function() {
+                                        uploadFile();
+                                    }
+                                }),
+                                new sap.m.BusyIndicator("busyIndicator", {
+                                    size: "2rem",
+                                    visible: false
+                                }),
+                                new sap.m.Text("statusText", {
+                                    text: ""
+                                }).addStyleClass("sapUiSmallMarginBegin")
+                            ]
+                        })
+                    ]
+                });
+                
+                // Create Document Information Section
+                var oDocInfoForm = new sap.ui.layout.form.SimpleForm("docInfoForm", {
+                    editable: false,
+                    layout: "ResponsiveGridLayout",
+                    labelSpanXL: 4,
+                    labelSpanL: 4,
+                    labelSpanM: 4,
+                    labelSpanS: 12,
+                    columnsXL: 1,
+                    columnsL: 1,
+                    columnsM: 1,
+                    visible: false,
+                    title: "Document Information",
+                    content: [
+                        new sap.m.Label({text: "Document Type", required: true}),
+                        new sap.m.HBox({
+                            items: [
+                                new sap.m.Input({
+                                    value: "{/document_type}",
+                                    width: "350px"
+                                }),
+                                new sap.m.ObjectStatus({
+                                    text: {
+                                        path: "/confidence/document_type",
+                                        formatter: function(confidence) {
+                                            if (confidence === undefined || confidence === null) {
+                                                return "";
+                                            }
+                                            return Math.round(confidence * 100) + "%";
+                                        }
+                                    },
+                                    state: {
+                                        path: "/confidence/document_type",
+                                        formatter: function(confidence) {
+                                            if (confidence === undefined || confidence === null) {
+                                                return "None";
+                                            }
+                                            if (confidence >= 0.9) {
+                                                return "Success";
+                                            } else if (confidence >= 0.7) {
+                                                return "Warning";
+                                            } else {
+                                                return "Error";
+                                            }
+                                        }
+                                    },
+                                    icon: {
+                                        path: "/confidence/document_type",
+                                        formatter: function(confidence) {
+                                            if (confidence === undefined || confidence === null) {
+                                                return "";
+                                            }
+                                            if (confidence >= 0.9) {
+                                                return "sap-icon://message-success";
+                                            } else if (confidence >= 0.7) {
+                                                return "sap-icon://message-warning";
+                                            } else {
+                                                return "sap-icon://message-error";
+                                            }
+                                        }
+                                    }
+                                }).addStyleClass("sapUiSmallMarginBegin")
+                            ],
+                            alignItems: "Center"
+                        }),
+                        
+                        new sap.m.Label({text: "Document Number", required: true}),
+                        createEditableField("Input", "{/document_number}"),
+                        
+                        new sap.m.Label({text: "Document Date", required: true}),
+                        createEditableField("DatePicker", "{/date}")
+                    ]
+                });
+                
+                // Create Vendor Information Section
+                var oVendorForm = new sap.ui.layout.form.SimpleForm("vendorForm", {
+                    editable: false,
+                    layout: "ResponsiveGridLayout",
+                    labelSpanXL: 4,
+                    labelSpanL: 4,
+                    labelSpanM: 4,
+                    labelSpanS: 12,
+                    columnsXL: 1,
+                    columnsL: 1,
+                    columnsM: 1,
+                    visible: false,
+                    title: "Vendor Information",
+                    content: [
+                        new sap.m.Label({text: "Vendor Name", required: true}),
+                        createEditableField("Input", "{/vendor_information/name}"),
+                        
+                        new sap.m.Label({text: "Vendor Address"}),
+                        createEditableField("TextArea", "{/vendor_information/address}", null, {
+                            growing: true,
+                            growingMaxLines: 5
+                        }),
+                        
+                        new sap.m.Label({text: "Contact Info"}),
+                        createEditableField("Input", "{/vendor_information/contact}")
+                    ]
+                });
+                
+                // Create Customer Information Section
+                var oCustomerForm = new sap.ui.layout.form.SimpleForm("customerForm", {
+                    editable: false,
+                    layout: "ResponsiveGridLayout",
+                    labelSpanXL: 4,
+                    labelSpanL: 4,
+                    labelSpanM: 4,
+                    labelSpanS: 12,
+                    columnsXL: 1,
+                    columnsL: 1,
+                    columnsM: 1,
+                    visible: false,
+                    title: "Customer Information",
+                    content: [
+                        new sap.m.Label({text: "Customer Name"}),
+                        createEditableField("Input", "{/customer_information/name}"),
+                        
+                        new sap.m.Label({text: "Customer Address"}),
+                        createEditableField("TextArea", "{/customer_information/address}", {
+                            growing: true,
+                            growingMaxLines: 5
+                        }),
+                        
+                        new sap.m.Label({text: "Contact Info"}),
+                        createEditableField("Input", "{/customer_information/contact}")
+                    ]
+                });
+                
+                // Create Payment Information Section
+                var oPaymentForm = new sap.ui.layout.form.SimpleForm("paymentForm", {
+                    editable: false,
+                    layout: "ResponsiveGridLayout",
+                    labelSpanXL: 4,
+                    labelSpanL: 4,
+                    labelSpanM: 4,
+                    labelSpanS: 12,
+                    columnsXL: 1,
+                    columnsL: 1,
+                    columnsM: 1,
+                    visible: false,
+                    title: "Payment Information",
+                    content: [
+                        new sap.m.Label({text: "Payment Terms"}),
+                        createEditableField("Input", "{/payment_information/terms}"),
+                        
+                        new sap.m.Label({text: "Payment Due Date"}),
+                        createEditableField("DatePicker", "{/payment_information/due_date}"),
+                        
+                        new sap.m.Label({text: "Payment Method"}),
+                        createEditableField("Input", "{/payment_information/method}")
+                    ]
+                });
+                
+                // Create Amounts Information Section
+                var oAmountsForm = new sap.ui.layout.form.SimpleForm("amountsForm", {
+                    editable: false,
+                    layout: "ResponsiveGridLayout",
+                    labelSpanXL: 4,
+                    labelSpanL: 4,
+                    labelSpanM: 4,
+                    labelSpanS: 12,
+                    columnsXL: 1,
+                    columnsL: 1,
+                    columnsM: 1,
+                    visible: false,
+                    title: "Amounts",
+                    content: [
+                        new sap.m.Label({text: "Subtotal"}),
+                        createEditableField("Input", "{/amounts/subtotal}", {
+                            type: "Number",
+                            description: "USD",
+                            width: "200px",
+                            textAlign: "End"
+                        }),
+                        
+                        new sap.m.Label({text: "Tax"}),
+                        createEditableField("Input", "{/amounts/tax}", {
+                            type: "Number",
+                            description: "USD",
+                            width: "200px",
+                            textAlign: "End"
+                        }),
+                        
+                        new sap.m.Label({text: "Total"}),
+                        createEditableField("Input", "{/amounts/total}", {
+                            type: "Number",
+                            description: "USD",
+                            width: "200px",
+                            textAlign: "End"
+                        })
+                    ]
+                });
+                
+                // Create Line Items Table
+                var oLineItemsTable = new sap.ui.table.Table("lineItemsTable", {
+                    title: "Line Items",
+                    visibleRowCount: 5,
+                    selectionMode: "None",
+                    width: "100%",
+                    visible: false,
+                    editable: false,
+                    columnHeaderHeight: 40,
+                    rowHeight: 40,
+                    // Ensure we manually initialize all cells as read-only when rendered
+                    rowsUpdated: function() {
+                        try {
+                            var rows = this.getRows();
+                            var editButton = sap.ui.getCore().byId("editModeButton");
+                            var saveButton = sap.ui.getCore().byId("saveButton");
+                            var isInEditMode = saveButton && saveButton.getVisible();
+                            
+                            console.log("Table rows updated. Current edit mode:", isInEditMode ? "EDIT" : "READ-ONLY");
+                            
+                            for (var i = 0; i < rows.length; i++) {
+                                var cells = rows[i].getCells();
+                                for (var j = 0; j < cells.length; j++) {
+                                    if (cells[j] instanceof sap.m.HBox) {
+                                        var items = cells[j].getItems();
+                                        for (var k = 0; k < items.length; k++) {
+                                            if (items[k] instanceof sap.m.Input) {
+                                                console.log("Setting row " + i + ", cell " + j + " input readonly to " + !isInEditMode);
+                                                // Set editability based on current edit mode
+                                                // Only use setEditable - readonly property is not valid for sap.m.Input
+                                                items[k].setEditable(isInEditMode);
+                                                // Removed setProperty("readonly") as it causes errors
+                                            }
+                                        }
+                                    } else if (cells[j] instanceof sap.m.Input) {
+                                        console.log("Setting direct input at row " + i + ", cell " + j + " editable to " + isInEditMode);
+                                        cells[j].setEditable(isInEditMode);
+                                        // Removed setProperty("readonly") as it causes errors
+                                    }
+                                }
+                            }
+                        } catch (error) {
+                            console.error("Error in rowsUpdated handler", error);
+                        }
+                    },
+                    columns: [
+                        new sap.ui.table.Column({
+                            label: new sap.m.Label({text: "Item #"}),
+                            template: new sap.m.HBox({
+                                items: [
+                                    new sap.m.Input({
+                                        value: "{item_number}",
+                                        width: "100%",
+                                        editable: false,
+                                        enabled: true,
+                                        // readonly property removed as it's not valid for sap.m.Input
+                                        change: function(oEvent) {
+                                            console.log("Item number changed");
+                                        }
+                                    }),
+                                    new sap.m.ObjectStatus({
+                                        text: {
+                                            path: "confidence/item_number",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "";
+                                                }
+                                                return Math.round(confidence * 100) + "%";
+                                            }
+                                        },
+                                        state: {
+                                            path: "confidence/item_number",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "None";
+                                                }
+                                                if (confidence >= 0.9) {
+                                                    return "Success";
+                                                } else if (confidence >= 0.7) {
+                                                    return "Warning";
+                                                } else {
+                                                    return "Error";
+                                                }
+                                            }
+                                        },
+                                        icon: {
+                                            path: "confidence/item_number",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "";
+                                                }
+                                                if (confidence >= 0.9) {
+                                                    return "sap-icon://message-success";
+                                                } else if (confidence >= 0.7) {
+                                                    return "sap-icon://message-warning";
+                                                } else {
+                                                    return "sap-icon://message-error";
+                                                }
+                                            }
+                                        }
+                                    }).addStyleClass("sapUiSmallMarginBegin")
+                                ],
+                                alignItems: "Center"
+                            }),
+                            width: "220px",
+                            minWidth: 150
+                        }),
+                        new sap.ui.table.Column({
+                            label: new sap.m.Label({text: "Description"}),
+                            template: new sap.m.Input({
+                                value: "{description}",
+                                width: "100%",
+                                editable: false,
+                                enabled: true,
+                                readonly: true,
+                                change: function(oEvent) {
+                                    console.log("Description changed");
+                                }
+                            }),
+                            width: "400px",
+                            minWidth: 250
+                        }),
+                        new sap.ui.table.Column({
+                            label: new sap.m.Label({text: "Quantity"}),
+                            template: new sap.m.HBox({
+                                items: [
+                                    new sap.m.Input({
+                                        value: "{quantity}",
+                                        type: "Number",
+                                        width: "100%",
+                                        editable: false,
+                                        enabled: true,
+                                        readonly: true,
+                                        change: function(oEvent) {
+                                            // Get current row context
+                                            var oInput = oEvent.getSource();
+                                            var oContext = oInput.getBindingContext();
+                                            var sPath = oContext.getPath();
+                                            var oModel = oContext.getModel();
+                                            var oLineItem = oModel.getProperty(sPath);
+                                            
+                                            // Calculate new amount
+                                            var quantity = parseFloat(oLineItem.quantity) || 0;
+                                            var unitCost = parseFloat(oLineItem.unit_cost) || 0;
+                                            var newAmount = quantity * unitCost;
+                                            
+                                            // Update amount
+                                            oModel.setProperty(sPath + "/amount", newAmount);
+                                            
+                                            // Recalculate totals
+                                            recalculateTotals();
+                                        }
+                                    }),
+                                    new sap.m.ObjectStatus({
+                                        text: {
+                                            path: "confidence/quantity",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "";
+                                                }
+                                                return Math.round(confidence * 100) + "%";
+                                            }
+                                        },
+                                        state: {
+                                            path: "confidence/quantity",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "None";
+                                                }
+                                                if (confidence >= 0.9) {
+                                                    return "Success";
+                                                } else if (confidence >= 0.7) {
+                                                    return "Warning";
+                                                } else {
+                                                    return "Error";
+                                                }
+                                            }
+                                        },
+                                        icon: {
+                                            path: "confidence/quantity",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "";
+                                                }
+                                                if (confidence >= 0.9) {
+                                                    return "sap-icon://message-success";
+                                                } else if (confidence >= 0.7) {
+                                                    return "sap-icon://message-warning";
+                                                } else {
+                                                    return "sap-icon://message-error";
+                                                }
+                                            }
+                                        }
+                                    }).addStyleClass("sapUiSmallMarginBegin")
+                                ],
+                                alignItems: "Center"
+                            }),
+                            width: "100px"
+                        }),
+                        new sap.ui.table.Column({
+                            label: new sap.m.Label({text: "Unit"}),
+                            template: new sap.m.HBox({
+                                items: [
+                                    new sap.m.Input({
+                                        value: "{unit_measure}",
+                                        width: "100%",
+                                        editable: false,
+                                        enabled: true,
+                                        readonly: true
+                                    }),
+                                    new sap.m.ObjectStatus({
+                                        text: {
+                                            path: "confidence/unit_measure",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "";
+                                                }
+                                                return Math.round(confidence * 100) + "%";
+                                            }
+                                        },
+                                        state: {
+                                            path: "confidence/unit_measure",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "None";
+                                                }
+                                                if (confidence >= 0.9) {
+                                                    return "Success";
+                                                } else if (confidence >= 0.7) {
+                                                    return "Warning";
+                                                } else {
+                                                    return "Error";
+                                                }
+                                            }
+                                        },
+                                        icon: {
+                                            path: "confidence/unit_measure",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "";
+                                                }
+                                                if (confidence >= 0.9) {
+                                                    return "sap-icon://message-success";
+                                                } else if (confidence >= 0.7) {
+                                                    return "sap-icon://message-warning";
+                                                } else {
+                                                    return "sap-icon://message-error";
+                                                }
+                                            }
+                                        }
+                                    }).addStyleClass("sapUiSmallMarginBegin")
+                                ],
+                                alignItems: "Center"
+                            }),
+                            width: "80px"
+                        }),
+                        new sap.ui.table.Column({
+                            label: new sap.m.Label({text: "Unit Cost"}),
+                            template: new sap.m.HBox({
+                                items: [
+                                    new sap.m.Input({
+                                        value: "{unit_cost}",
+                                        type: "Number",
+                                        description: "USD",
+                                        width: "100%",
+                                        editable: false,
+                                        enabled: true,
+                                        readonly: true,
+                                        change: function(oEvent) {
+                                            // Get current row context
+                                            var oInput = oEvent.getSource();
+                                            var oContext = oInput.getBindingContext();
+                                            var sPath = oContext.getPath();
+                                            var oModel = oContext.getModel();
+                                            var oLineItem = oModel.getProperty(sPath);
+                                            
+                                            // Calculate new amount
+                                            var quantity = parseFloat(oLineItem.quantity) || 0;
+                                            var unitCost = parseFloat(oLineItem.unit_cost) || 0;
+                                            var newAmount = quantity * unitCost;
+                                            
+                                            // Update amount
+                                            oModel.setProperty(sPath + "/amount", newAmount);
+                                            
+                                            // Recalculate totals
+                                            recalculateTotals();
+                                        }
+                                    }),
+                                    new sap.m.ObjectStatus({
+                                        text: {
+                                            path: "confidence/unit_cost",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "";
+                                                }
+                                                return Math.round(confidence * 100) + "%";
+                                            }
+                                        },
+                                        state: {
+                                            path: "confidence/unit_cost",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "None";
+                                                }
+                                                if (confidence >= 0.9) {
+                                                    return "Success";
+                                                } else if (confidence >= 0.7) {
+                                                    return "Warning";
+                                                } else {
+                                                    return "Error";
+                                                }
+                                            }
+                                        },
+                                        icon: {
+                                            path: "confidence/unit_cost",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "";
+                                                }
+                                                if (confidence >= 0.9) {
+                                                    return "sap-icon://message-success";
+                                                } else if (confidence >= 0.7) {
+                                                    return "sap-icon://message-warning";
+                                                } else {
+                                                    return "sap-icon://message-error";
+                                                }
+                                            }
+                                        }
+                                    }).addStyleClass("sapUiSmallMarginBegin")
+                                ],
+                                alignItems: "Center"
+                            }),
+                            width: "130px"
+                        }),
+                        new sap.ui.table.Column({
+                            label: new sap.m.Label({text: "Amount"}),
+                            template: new sap.m.HBox({
+                                items: [
+                                    new sap.m.Input({
+                                        value: "{amount}",
+                                        type: "Number",
+                                        description: "USD",
+                                        width: "100%",
+                                        editable: false,
+                                        enabled: true,
+                                        readonly: true
+                                    }),
+                                    new sap.m.ObjectStatus({
+                                        text: {
+                                            path: "confidence/amount",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "";
+                                                }
+                                                return Math.round(confidence * 100) + "%";
+                                            }
+                                        },
+                                        state: {
+                                            path: "confidence/amount",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "None";
+                                                }
+                                                if (confidence >= 0.9) {
+                                                    return "Success";
+                                                } else if (confidence >= 0.7) {
+                                                    return "Warning";
+                                                } else {
+                                                    return "Error";
+                                                }
+                                            }
+                                        },
+                                        icon: {
+                                            path: "confidence/amount",
+                                            formatter: function(confidence) {
+                                                if (confidence === undefined || confidence === null) {
+                                                    return "";
+                                                }
+                                                if (confidence >= 0.9) {
+                                                    return "sap-icon://message-success";
+                                                } else if (confidence >= 0.7) {
+                                                    return "sap-icon://message-warning";
+                                                } else {
+                                                    return "sap-icon://message-error";
+                                                }
+                                            }
+                                        }
+                                    }).addStyleClass("sapUiSmallMarginBegin")
+                                ],
+                                alignItems: "Center"
+                            }),
+                            width: "130px"
+                        })
+                    ]
+                });
+                
+                // Add function to add new line item
+                var oAddLineItemButton = new sap.m.Button({
+                    text: "Add Line Item",
+                    icon: "sap-icon://add",
+                    press: function() {
+                        var oLineItemsTable = sap.ui.getCore().byId("lineItemsTable");
+                        var oModel = oLineItemsTable.getModel();
+                        var aLineItems = oModel.getData();
+                        
+                        // Add a new empty line item
+                        aLineItems.push({
+                            item_number: "",
+                            description: "",
+                            quantity: 0,
+                            unit_measure: "EA",
+                            unit_cost: 0,
+                            amount: 0,
+                            confidence: {
+                                item_number: null,
+                                description: null,
+                                quantity: null,
+                                unit_measure: null,
+                                unit_cost: null,
+                                amount: null
+                            }
+                        });
+                        
+                        // Update model
+                        oModel.setData(aLineItems);
+                        oLineItemsTable.setVisibleRowCount(Math.min(aLineItems.length, 10));
+                        
+                        // Recalculate totals after adding line item
+                        recalculateTotals();
+                        
+                        // Check if we're in edit mode 
+                        var saveButton = sap.ui.getCore().byId("saveButton");
+                        var isInEditMode = saveButton && saveButton.getVisible();
+                        
+                        // Always force the correct state for new line items
+                        setTimeout(function() {
+                            try {
+                                console.log("Setting read-only state for new line item to: " + !isInEditMode);
+                                var rows = oLineItemsTable.getRows();
+                                var lastRowIndex = rows.length - 1;
+                                
+                                if (lastRowIndex >= 0) {
+                                    var cells = rows[lastRowIndex].getCells();
+                                    for (var j = 0; j < cells.length; j++) {
+                                        if (cells[j] instanceof sap.m.HBox) {
+                                            var items = cells[j].getItems();
+                                            for (var k = 0; k < items.length; k++) {
+                                                if (items[k] instanceof sap.m.Input) {
+                                                    // Apply multiple properties to ensure read-only state
+                                                    items[k].setEditable(isInEditMode);
+                                                    // Removed setProperty("readonly") as it doesn't exist for sap.m.Input
+                                                    if (!isInEditMode) {
+                                                        // Temporarily disable then re-enable to force UI refresh
+                                                        items[k].setEnabled(false);
+                                                        setTimeout((function(item) {
+                                                            return function() {
+                                                                item.setEnabled(true);
+                                                                item.setEditable(false);
+                                                                // Removed setProperty("readonly") as it doesn't exist
+                                                            }
+                                                        })(items[k]), 50);
+                                                    }
+                                                }
+                                            }
+                                        } else if (cells[j] instanceof sap.m.Input) {
+                                            cells[j].setEditable(isInEditMode);
+                                            // Removed setProperty("readonly") as it doesn't exist for sap.m.Input
+                                            if (!isInEditMode) {
+                                                cells[j].setEnabled(false);
+                                                setTimeout((function(cell) {
+                                                    return function() {
+                                                        cell.setEnabled(true);
+                                                        cell.setEditable(false);
+                                                        // Removed setProperty("readonly") as it doesn't exist
+                                                    }
+                                                })(cells[j]), 50);
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // Force another refresh after a short delay
+                                setTimeout(function() {
+                                    if (lastRowIndex >= 0) {
+                                        console.log("Secondary refresh of new line item read-only state");
+                                        var cells = rows[lastRowIndex].getCells();
+                                        for (var j = 0; j < cells.length; j++) {
+                                            if (cells[j] instanceof sap.m.HBox) {
+                                                var items = cells[j].getItems();
+                                                for (var k = 0; k < items.length; k++) {
+                                                    if (items[k] instanceof sap.m.Input) {
+                                                        items[k].setEditable(isInEditMode); // Use setEditable instead of readonly property
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }, 200);
+                                
+                            } catch (error) {
+                                console.error("Error updating read-only state for new line item:", error);
+                            }
+                        }, 100);
+                    }
+                });
+                
+                // Create Feedback Panel for user input
+                var oFeedbackPanel = new sap.m.Panel("feedbackPanel", {
+                    headerText: "Extraction Feedback",
+                    expandable: true,
+                    expanded: false,
+                    visible: false,
+                    content: [
+                        new sap.m.VBox({
+                            items: [
+                                new sap.m.Text({
+                                    text: "Help improve future extractions by providing feedback:"
+                                }).addStyleClass("sapUiSmallMarginBottom"),
+                                
+                                new sap.m.Label({text: "General Comments"}),
+                                new sap.m.TextArea("feedbackComments", {
+                                    width: "100%",
+                                    rows: 3,
+                                    placeholder: "Describe any issues with the extraction or provide suggestions for improvement..."
+                                }).addStyleClass("sapUiSmallMarginBottom"),
+                                
+                                new sap.m.Label({text: "Which fields had extraction issues?"}),
+                                new sap.m.HBox({
+                                    items: [
+                                        new sap.m.CheckBox("cbDocType", {text: "Document Type", selected: false}),
+                                        new sap.m.CheckBox("cbDocNumber", {text: "Document Number", selected: false}).addStyleClass("sapUiMediumMarginBegin"),
+                                        new sap.m.CheckBox("cbDate", {text: "Date", selected: false}).addStyleClass("sapUiMediumMarginBegin")
+                                    ]
+                                }).addStyleClass("sapUiSmallMarginBottom"),
+                                new sap.m.HBox({
+                                    items: [
+                                        new sap.m.CheckBox("cbVendor", {text: "Vendor Information", selected: false}),
+                                        new sap.m.CheckBox("cbLineItems", {text: "Line Items", selected: false}).addStyleClass("sapUiMediumMarginBegin"),
+                                        new sap.m.CheckBox("cbAmounts", {text: "Amounts", selected: false}).addStyleClass("sapUiMediumMarginBegin")
+                                    ]
+                                }).addStyleClass("sapUiSmallMarginBottom"),
+                                
+                                new sap.m.Label({text: "Improved extraction prompt (optional)"}),
+                                new sap.m.TextArea("feedbackPrompt", {
+                                    width: "100%", 
+                                    rows: 4,
+                                    placeholder: "Suggest a better prompt for extracting this type of document..."
+                                }).addStyleClass("sapUiSmallMarginBottom"),
+                                
+                                new sap.m.Button({
+                                    text: "Submit Feedback",
+                                    type: "Emphasized",
+                                    press: function() {
+                                        submitFeedback();
+                                    }
+                                }).addStyleClass("sapUiSmallMarginTop")
+                            ],
+                            width: "100%"
+                        })
+                    ]
+                });
+                
+                // Create Raw JSON Display (for debugging)
+                var oRawJsonPanel = new sap.m.Panel("rawJsonPanel", {
+                    headerText: "Raw Extraction Data",
+                    expandable: true,
+                    expanded: false,
+                    visible: false,
+                    content: [
+                        new sap.m.TextArea("rawJsonTextarea", {
+                            width: "100%",
+                            height: "300px",
+                            editable: false,
+                            value: ""
+                        })
+                    ]
+                });
+                
+                // Create Purchase Order button
+                var oCreatePOButton = new sap.m.Button("createPOButton", {
+                    text: "Create Purchase Order in S/4HANA",
+                    type: "Emphasized",
+                    visible: false,
+                    press: function() {
+                        // Validate data before creating purchase order
+                        if (validateData()) {
+                            createPurchaseOrder();
+                        }
+                    }
+                });
+                
+                // Status display for PO creation
+                var oPOStatus = new sap.m.MessageStrip("poStatus", {
+                    text: "",
+                    showIcon: true,
+                    visible: false
+                });
+                
+                // Create a vertical layout for the forms
+                var oResultLayout = new sap.ui.layout.VerticalLayout("resultLayout", {
+                    width: "100%",
+                    visible: false,
+                    content: [
+                        oObjectHeader,
+                        new sap.m.HBox({
+                            items: [
+                                new sap.m.HBox({
+                                    items: [
+                                        oCreatePOButton,
+                                        new sap.m.Button("editModeButton", {
+                                            text: "Edit Data",
+                                            icon: "sap-icon://edit",
+                                            type: "Transparent",
+                                            visible: true,
+                                            press: function() {
+                                                toggleEditMode(true);
+                                            }
+                                        }).addStyleClass("sapUiSmallMarginBegin"),
+                                        new sap.m.Button("saveButton", {
+                                            text: "Save Changes",
+                                            icon: "sap-icon://save",
+                                            type: "Emphasized",
+                                            visible: false,
+                                            press: function() {
+                                                toggleEditMode(false);
+                                            }
+                                        }).addStyleClass("sapUiSmallMarginBegin")
+                                    ]
+                                }),
+                                oPOStatus
+                            ],
+                            justifyContent: "SpaceBetween",
+                            width: "100%"
+                        }).addStyleClass("sapUiMediumMarginBottom"),
+                        new sap.m.VBox({
+                            items: [
+                                oDocInfoForm,
+                                oVendorForm,
+                                oCustomerForm,
+                                oAmountsForm,
+                                oPaymentForm,
+                                new sap.m.HBox({
+                                    items: [
+                                        oLineItemsTable,
+                                        new sap.m.VBox({
+                                            width: "100px",
+                                            items: [
+                                                oAddLineItemButton
+                                            ],
+                                            alignItems: "Start",
+                                            justifyContent: "Start"
+                                        }).addStyleClass("sapUiSmallMarginBegin sapUiSmallMarginTop")
+                                    ],
+                                    width: "100%"
+                                }),
+                                oFeedbackPanel,
+                                oRawJsonPanel
+                            ]
+                        })
+                    ]
+                });
+                
+                // Create main page layout
+                var oPage = new sap.m.Page("page1", {
+                    title: "Document Information Extractor",
+                    headerContent: [
+                        new sap.m.Button({
+                            text: "View Feedback History",
+                            icon: "sap-icon://feedback",
+                            press: function() {
+                                window.open("./feedback-debug.html", "_blank");
+                            }
+                        })
+                    ],
+                    content: [
+                        oUploadForm,
+                        oResultLayout
+                    ],
+                    footer: new sap.m.Bar({
+                        contentMiddle: [
+                            new sap.m.Text({
+                                text: "Powered by SAP AI Core with Claude 3.5"
+                            })
+                        ]
+                    })
+                });
+                
+                // Create model for binding
+                var oModel = new sap.ui.model.json.JSONModel({
+                    documentStatus: {
+                        text: "Not Processed",
+                        state: "None", 
+                        icon: "sap-icon://document"
+                    }
+                });
+                
+                // Set model to view
+                sap.ui.getCore().setModel(oModel);
+                
+                // Add the page to the app and place it
+                sap.ui.getCore().byId("myApp").addPage(oPage);
+                oShell.placeAt("content");
+                
+                // Add event listener for file selection
+                fileInput.addEventListener("change", function() {
+                    if (fileInput.files.length > 0) {
+                        var fileName = fileInput.files[0].name;
+                        console.log("File selected:", fileName);
+                        sap.ui.getCore().byId("filePathInput").setValue(fileName);
+                    }
+                });
+                
+                console.log("UI5 application initialized successfully");
+                
+                // Force reset all line item inputs to read-only on page load
+                setTimeout(function() {
+                    try {
+                        console.log("Ensuring all line item fields are read-only on initial load");
+                        var oLineItemsTable = sap.ui.getCore().byId("lineItemsTable");
+                        if (oLineItemsTable) {
+                            var rows = oLineItemsTable.getRows();
+                            for (var i = 0; i < rows.length; i++) {
+                                var cells = rows[i].getCells();
+                                for (var j = 0; j < cells.length; j++) {
+                                    if (cells[j] instanceof sap.m.HBox) {
+                                        var items = cells[j].getItems();
+                                        for (var k = 0; k < items.length; k++) {
+                                            if (items[k] instanceof sap.m.Input) {
+                                                console.log("Setting input field to readonly at row " + i + ", cell " + j);
+                                                items[k].setEditable(false); // Use setEditable(false) instead of readonly property
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error("Error setting line items to read-only on init:", error);
+                    }
+                }, 500); // Longer timeout to ensure UI is fully rendered
+            } catch (err) {
+                console.error("Error initializing UI5 application:", err);
+                document.getElementById('content').innerHTML = 
+                    '<div style="color:red;padding:20px;">Error initializing UI5: ' + err.message + '</div>';
+            }
+        }
+        
+        // Function to create purchase order in S/4HANA
+        window.createPurchaseOrder = function() {
+            try {
+                var oModel = sap.ui.getCore().getModel();
+                var extractedData = oModel.getData();
+                var oDialog;
+                
+                // Get PO status display
+                var poStatus = sap.ui.getCore().byId("poStatus");
+                
+                // Create S/4HANA payload from extracted data
+                var s4Payload = createS4Payload(extractedData);
+                
+                // Show dialog with payload
+                oDialog = new sap.m.Dialog({
+                    title: "Create Purchase Order in S/4HANA",
+                    contentWidth: "800px",
+                    content: [
+                        new sap.m.VBox({
+                            items: [
+                                new sap.m.Text({
+                                    text: "The following data will be sent to S/4HANA:"
+                                }).addStyleClass("sapUiSmallMarginBottom"),
+                                new sap.m.TextArea({
+                                    value: JSON.stringify(s4Payload, null, 2),
+                                    rows: 20,
+                                    width: "100%",
+                                    editable: false
+                                })
+                            ],
+                            width: "100%"
+                        })
+                    ],
+                    beginButton: new sap.m.Button({
+                        text: "Send to S/4HANA",
+                        type: "Emphasized",
+                        press: function() {
+                            // This is where the actual S/4HANA integration would happen
+                            // For now, we'll simulate a successful response
+                            
+                            // Show busy dialog
+                            var busyDialog = new sap.m.BusyDialog({
+                                title: "Creating Purchase Order",
+                                text: "Sending data to S/4HANA..."
+                            });
+                            busyDialog.open();
+                            
+                            // Simulate API call with timeout
+                            setTimeout(function() {
+                                busyDialog.close();
+                                
+                                // Create success response with PO number
+                                var poNumber = "45" + Math.floor(Math.random() * 10000000);
+                                
+                                // Show success message
+                                poStatus.setText("Purchase Order " + poNumber + " created successfully in S/4HANA");
+                                poStatus.setType("Success");
+                                poStatus.setVisible(true);
+                                
+                                // Close dialog
+                                oDialog.close();
+                                
+                                // Show success message dialog
+                                sap.m.MessageBox.success(
+                                    "Purchase Order " + poNumber + " has been created successfully in S/4HANA.",
+                                    {
+                                        title: "Purchase Order Created",
+                                        actions: [sap.m.MessageBox.Action.OK],
+                                        emphasizedAction: sap.m.MessageBox.Action.OK
+                                    }
+                                );
+                            }, 2000);
+                        }
+                    }),
+                    endButton: new sap.m.Button({
+                        text: "Cancel",
+                        press: function() {
+                            oDialog.close();
+                        }
+                    }),
+                    afterClose: function() {
+                        oDialog.destroy();
+                    }
+                });
+                
+                oDialog.open();
+            } catch(err) {
+                console.error("Error creating purchase order:", err);
+                sap.m.MessageBox.error("Error preparing purchase order data: " + err.message);
+            }
+        };
+        
+        // Function to toggle edit mode for all fields
+        function toggleEditMode(editMode) {
+            try {
+                console.log("Toggling edit mode to: " + editMode);
+                
+                // Toggle button visibility
+                var editButton = sap.ui.getCore().byId("editModeButton");
+                var saveButton = sap.ui.getCore().byId("saveButton");
+                
+                if (editButton && saveButton) {
+                    editButton.setVisible(!editMode);
+                    saveButton.setVisible(editMode);
+                } else {
+                    console.warn("Edit/Save buttons not found");
+                }
+                
+                // Toggle form fields
+                var toggleFormFields = function(formId) {
+                    var form = sap.ui.getCore().byId(formId);
+                    if (form) {
+                        try {
+                            form.setEditable(editMode);
+                            var content = form.getContent();
+                            for (var i = 0; i < content.length; i++) {
+                                // Skip labels (every odd item is a label)
+                                if (i % 2 !== 0) {
+                                    if (content[i] instanceof sap.m.Input || 
+                                        content[i] instanceof sap.m.TextArea || 
+                                        content[i] instanceof sap.m.DatePicker) {
+                                        content[i].setEditable(editMode);
+                                    } else if (content[i] instanceof sap.m.HBox) {
+                                        // For HBox containing fields and confidence indicators
+                                        var hboxItems = content[i].getItems();
+                                        for (var j = 0; j < hboxItems.length; j++) {
+                                            if (hboxItems[j] instanceof sap.m.Input || 
+                                                hboxItems[j] instanceof sap.m.TextArea || 
+                                                hboxItems[j] instanceof sap.m.DatePicker) {
+                                                hboxItems[j].setEditable(editMode);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (formError) {
+                            console.error("Error updating form " + formId, formError);
+                        }
+                    } else {
+                        console.warn("Form not found: " + formId);
+                    }
+                };
+                
+                // Toggle all form fields
+                toggleFormFields("docInfoForm");
+                toggleFormFields("vendorForm");
+                toggleFormFields("customerForm");
+                toggleFormFields("paymentForm");
+                toggleFormFields("amountsForm");
+                
+                // Toggle line items table
+                var oLineItemsTable = sap.ui.getCore().byId("lineItemsTable");
+                if (oLineItemsTable) {
+                    try {
+                        console.log("Setting line items to " + (editMode ? "editable" : "readonly"));
+                        
+                        // This is a critical change - we need to manually enforce readonly for each input field
+                        // We'll do this at multiple levels to ensure it takes effect
+                        
+                        // 1. Update the template itself for future rows
+                        var columns = oLineItemsTable.getColumns();
+                        for (var i = 0; i < columns.length; i++) {
+                            var template = columns[i].getTemplate();
+                            if (template instanceof sap.m.HBox) {
+                                var templateItems = template.getItems();
+                                for (var t = 0; t < templateItems.length; t++) {
+                                    if (templateItems[t] instanceof sap.m.Input) {
+                                        console.log("Setting column " + i + " template input to readonly: " + !editMode);
+                                        templateItems[t].setEditable(editMode);
+                                        // Removed setProperty("readonly") as it doesn't exist for sap.m.Input
+                                    }
+                                }
+                            } else if (template instanceof sap.m.Input) {
+                                console.log("Setting column " + i + " template input to readonly: " + !editMode);
+                                template.setEditable(editMode);
+                                // Removed setProperty("readonly") as it doesn't exist for sap.m.Input
+                            }
+                        }
+                        
+                        // 2. Update all existing row cells
+                        console.log("METHOD 1: Initial direct update of all row cells");
+                        var rows = oLineItemsTable.getRows();
+                        for (var i = 0; i < rows.length; i++) {
+                            var cells = rows[i].getCells();
+                            for (var j = 0; j < cells.length; j++) {
+                                if (cells[j] instanceof sap.m.HBox) {
+                                    var items = cells[j].getItems();
+                                    for (var k = 0; k < items.length; k++) {
+                                        if (items[k] instanceof sap.m.Input) {
+                                            console.log("METHOD 1: Setting row " + i + ", cell " + j + " item " + k + " readonly: " + !editMode);
+                                            // Only use editable property - readonly property doesn't exist
+                                            items[k].setEditable(editMode);
+                                            // Removed setProperty("readonly") as it doesn't exist for sap.m.Input
+                                            // Also disable the control which might help prevent editing
+                                            // Always disable first to force UI refresh
+                                            items[k].setEnabled(false);
+                                            // Re-enable after a short delay with proper state
+                                            setTimeout((function(item, makeEditable, rowIdx, cellIdx, itemIdx) {
+                                                return function() {
+                                                    console.log("METHOD 1 CALLBACK: Setting row " + rowIdx + ", cell " + cellIdx + " item " + itemIdx + " to " + (makeEditable ? "editable" : "readonly"));
+                                                    item.setEnabled(true);
+                                                    // Only use setEditable - readonly property is not valid for sap.m.Input
+                                                    item.setEditable(makeEditable);
+                                                    // Removed setProperty("readonly") as it causes errors
+                                                }
+                                            })(items[k], editMode, i, j, k), 50);
+                                        }
+                                    }
+                                } else if (cells[j] instanceof sap.m.Input) {
+                                    console.log("METHOD 1: Setting row " + i + ", cell " + j + " editable: " + editMode);
+                                    cells[j].setEditable(editMode);
+                                    // Removed setProperty("readonly") as it causes errors
+                                    // Also apply enabled state
+                                    // Always disable first to force UI refresh
+                                    cells[j].setEnabled(false);
+                                    // Re-enable after a short delay with proper state
+                                    setTimeout((function(cell, makeEditable, rowIdx, cellIdx) {
+                                        return function() {
+                                            console.log("METHOD 1 CALLBACK: Setting row " + rowIdx + ", cell " + cellIdx + " to " + (makeEditable ? "editable" : "readonly"));
+                                            cell.setEnabled(true);
+                                            // Only use setEditable - readonly property is not valid for sap.m.Input
+                                            cell.setEditable(makeEditable);
+                                            // Removed setProperty("readonly") as it causes errors
+                                        }
+                                    })(cells[j], editMode, i, j), 50);
+                                }
+                            }
+                        }
+                        
+                        // 3. Reset the editable property of the table itself
+                        oLineItemsTable.setEditable(editMode);
+                        
+                        // 4. Refresh the table to ensure changes are applied
+                        oLineItemsTable.invalidate();
+                        
+                        // 5. Apply a second refresh after a short delay to make sure changes stick
+                        setTimeout(function() {
+                            console.log("METHOD 2: Running secondary pass with 300ms delay to set all fields to " + (editMode ? "editable" : "read-only"));
+                            
+                            // First force table update
+                            oLineItemsTable.invalidate();
+                            
+                            // Get updated rows after invalidation
+                            var rows = oLineItemsTable.getRows();
+                            console.log("METHOD 2: Found " + rows.length + " rows in table for secondary processing");
+                            
+                            try {
+                                // Process each row thoroughly
+                                for (var i = 0; i < rows.length; i++) {
+                                    console.log("METHOD 2: Processing row " + i + " in secondary pass");
+                                    var cells = rows[i].getCells();
+                                    
+                                    for (var j = 0; j < cells.length; j++) {
+                                        if (cells[j] instanceof sap.m.HBox) {
+                                            var items = cells[j].getItems();
+                                            for (var k = 0; k < items.length; k++) {
+                                                if (items[k] instanceof sap.m.Input) {
+                                                    console.log("METHOD 2: Row " + i + ", cell " + j + ", item " + k + ": forcing " + (editMode ? "editable" : "readonly"));
+                                                    // Only use setEditable - readonly property is not valid for sap.m.Input
+                                                    items[k].setEditable(editMode);
+                                                    items[k].setEnabled(true);
+                                                    
+                                                    // Try to reset the input by temporarily setting its value
+                                                    try {
+                                                        var originalValue = items[k].getValue();
+                                                        items[k].setValue(originalValue + " ");
+                                                        setTimeout(function(input, value) {
+                                                            return function() {
+                                                                input.setValue(value);
+                                                            }
+                                                        }(items[k], originalValue), 10);
+                                                    } catch(e) {
+                                                        console.log("METHOD 2: Value reset failed, not critical");
+                                                    }
+                                                }
+                                            }
+                                        } else if (cells[j] instanceof sap.m.Input) {
+                                            console.log("METHOD 2: Row " + i + ", cell " + j + ": forcing " + (editMode ? "editable" : "readonly"));
+                                            cells[j].setEditable(editMode);
+                                            // Removed setProperty("readonly") as it causes errors
+                                            cells[j].setEnabled(true);
+                                            
+                                            // Try to reset the input by temporarily setting its value
+                                            try {
+                                                var originalValue = cells[j].getValue();
+                                                cells[j].setValue(originalValue + " ");
+                                                setTimeout(function(input, value) {
+                                                    return function() {
+                                                        input.setValue(value);
+                                                    }
+                                                }(cells[j], originalValue), 10);
+                                            } catch(e) {
+                                                console.log("METHOD 2: Value reset failed, not critical");
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // Force another refresh
+                                oLineItemsTable.invalidate();
+                                
+                                // Add a third pass with longer timeout to handle virtualized rows
+                                setTimeout(function() {
+                                    console.log("METHOD 3: Running third pass with 500ms delay to ensure all visible rows are properly set");
+                                    var visibleRows = oLineItemsTable.getRows();
+                                    console.log("METHOD 3: Processing " + visibleRows.length + " visible rows");
+                                    
+                                    for (var i = 0; i < visibleRows.length; i++) {
+                                        var cells = visibleRows[i].getCells();
+                                        
+                                        // Process each cell in this row
+                                        for (var j = 0; j < cells.length; j++) {
+                                            if (cells[j] instanceof sap.m.HBox) {
+                                                var items = cells[j].getItems();
+                                                for (var k = 0; k < items.length; k++) {
+                                                    if (items[k] instanceof sap.m.Input) {
+                                                        console.log("METHOD 3: Updating row " + i + ", cell " + j + ", item " + k + " to " + (editMode ? "editable" : "readonly"));
+                                                        items[k].setEditable(editMode);
+                                                        // Removed setProperty("readonly") as it causes errors
+                                                        
+                                                        // Force DOM update by setting focus then removing it
+                                                        if (editMode) {
+                                                            try {
+                                                                setTimeout(function(input, rowIdx, cellIdx, itemIdx) {
+                                                                    return function() {
+                                                                        console.log("METHOD 3: Forcing update on row " + rowIdx + ", cell " + cellIdx + ", item " + itemIdx);
+                                                                        input.focus();
+                                                                        setTimeout(function() { 
+                                                                            input.getDomRef().blur();
+                                                                        }, 10);
+                                                                    }
+                                                                }(items[k], i, j, k), 20 * i); // Stagger the focus
+                                                            } catch(e) {
+                                                                console.log("METHOD 3: Focus update failed, not critical");
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            } else if (cells[j] instanceof sap.m.Input) {
+                                                console.log("METHOD 3: Updating row " + i + ", cell " + j + " to " + (editMode ? "editable" : "readonly"));
+                                                cells[j].setEditable(editMode);
+                                                // Removed setProperty("readonly") as it causes errors
+                                                
+                                                // Force DOM update by setting focus then removing it
+                                                if (editMode) {
+                                                    try {
+                                                        setTimeout(function(input, rowIdx, cellIdx) {
+                                                            return function() {
+                                                                console.log("METHOD 3: Forcing update on row " + rowIdx + ", cell " + cellIdx);
+                                                                input.focus();
+                                                                setTimeout(function() { 
+                                                                    input.getDomRef().blur();
+                                                                }, 10);
+                                                            }
+                                                        }(cells[j], i, j), 20 * i); // Stagger the focus
+                                                    } catch(e) {
+                                                        console.log("METHOD 3: Focus update failed, not critical");
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }, 500);
+                            } catch (error) {
+                                console.error("Error in secondary pass for rows:", error);
+                            }
+                        }, 300);
+                        
+                    } catch (tableError) {
+                        console.error("Error updating line items table", tableError);
+                    }
+                } else {
+                    console.warn("Line items table not found");
+                }
+                
+                // Final approach - use one more timeout to update all rows
+                setTimeout(function() {
+                    console.log("METHOD 4: Final approach with 700ms delay - forcing table refresh and updating all rows");
+                    var oLineItemsTable = sap.ui.getCore().byId("lineItemsTable");
+                    
+                    if (oLineItemsTable) {
+                        // Force the table to refresh
+                        oLineItemsTable.invalidate();
+                        
+                        // Get current model
+                        try {
+                            // Process all rows and update all visibles directly
+                            var visibleRows = oLineItemsTable.getRows();
+                            console.log("METHOD 4: Processing " + visibleRows.length + " visible rows");
+                            
+                            for (var i = 0; i < visibleRows.length; i++) {
+                                console.log("METHOD 4: Processing row " + i);
+                                
+                                visibleRows[i].getCells().forEach(function(cell, cellIndex) {
+                                    if (cell instanceof sap.m.HBox) {
+                                        cell.getItems().forEach(function(item, itemIndex) {
+                                            if (item instanceof sap.m.Input) {
+                                                console.log("METHOD 4: Setting row " + i + ", cell " + cellIndex + ", item " + itemIndex + " to " + (editMode ? "editable" : "readonly"));
+                                                item.setEditable(editMode);
+                                                // Remove "readonly" property setting as it doesn't exist in sap.m.Input
+                                                
+                                                // Try direct DOM manipulation as a last resort
+                                                try {
+                                                    var domRef = item.getDomRef();
+                                                    if (domRef) {
+                                                        if (editMode) {
+                                                            // For editable inputs, make sure readonly attribute is removed
+                                                            domRef.removeAttribute("readonly");
+                                                        } else {
+                                                            // For read-only inputs, try using DOM attribute
+                                                            // This is not the recommended way in UI5 but a backup approach
+                                                            domRef.setAttribute("readonly", "readonly");
+                                                        }
+                                                        console.log("METHOD 4: Direct DOM manipulation successful for input");
+                                                    }
+                                                } catch(e) {
+                                                    console.log("METHOD 4: DOM manipulation failed, falling back to rerender");
+                                                }
+                                                
+                                                // Force rerender
+                                                item.rerender();
+                                            }
+                                        });
+                                    } else if (cell instanceof sap.m.Input) {
+                                        console.log("METHOD 4: Setting row " + i + ", cell " + cellIndex + " to " + (editMode ? "editable" : "readonly"));
+                                        cell.setEditable(editMode);
+                                        // Remove "readonly" property setting as it doesn't exist in sap.m.Input
+                                        
+                                        // Try direct DOM manipulation as a last resort
+                                        try {
+                                            var domRef = cell.getDomRef();
+                                            if (domRef) {
+                                                if (editMode) {
+                                                    // For editable inputs, make sure readonly attribute is removed
+                                                    domRef.removeAttribute("readonly");
+                                                } else {
+                                                    // For read-only inputs, try using DOM attribute
+                                                    // This is not the recommended way in UI5 but a backup approach
+                                                    domRef.setAttribute("readonly", "readonly");
+                                                }
+                                                console.log("METHOD 4: Direct DOM manipulation successful for input");
+                                            }
+                                        } catch(e) {
+                                            console.log("METHOD 4: DOM manipulation failed, falling back to rerender");
+                                        }
+                                        
+                                        // Force rerender
+                                        cell.rerender();
+                                    }
+                                });
+                            }
+                            
+                            // One final refresh
+                            oLineItemsTable.rerender();
+                            
+                        } catch (error) {
+                            console.error("METHOD 4: Error in final table update:", error);
+                        }
+                    }
+                }, 700);
+                
+                // Show a message about edit mode
+                if (editMode) {
+                    sap.m.MessageToast.show("All fields are now editable");
+                } else {
+                    // Recalculate totals when saving changes
+                    recalculateTotals();
+                    sap.m.MessageToast.show("Changes saved. All fields are now read-only");
+                }
+                
+            } catch(error) {
+                console.error("Error toggling edit mode:", error);
+                // Use alert instead of MessageBox to avoid potential circular reference
+                alert("Error toggling edit mode: " + error.message);
+            }
+        }
+        
+        // Function to recalculate totals based on line items
+        function recalculateTotals() {
+            try {
+                var oModel = sap.ui.getCore().getModel();
+                var data = oModel.getData();
+                
+                if (!data.line_items || data.line_items.length === 0) {
+                    return;
+                }
+                
+                // Calculate subtotal from line items
+                var subtotal = 0;
+                data.line_items.forEach(function(item) {
+                    if (item.amount) {
+                        subtotal += parseFloat(item.amount) || 0;
+                    }
+                });
+                
+                // Round to 2 decimal places
+                subtotal = Math.round(subtotal * 100) / 100;
+                
+                // Initialize amounts object if it doesn't exist
+                if (!data.amounts) {
+                    data.amounts = {};
+                }
+                
+                // Update subtotal
+                oModel.setProperty("/amounts/subtotal", subtotal);
+                
+                // Get current tax rate or use default (10%)
+                var taxRate = 0.1; // Default tax rate 10%
+                if (data.amounts.tax && data.amounts.subtotal) {
+                    var currentTax = parseFloat(data.amounts.tax) || 0;
+                    var currentSubtotal = parseFloat(data.amounts.subtotal) || 0;
+                    if (currentSubtotal > 0) {
+                        taxRate = currentTax / currentSubtotal;
+                    }
+                }
+                
+                // Calculate tax
+                var tax = subtotal * taxRate;
+                tax = Math.round(tax * 100) / 100;
+                oModel.setProperty("/amounts/tax", tax);
+                
+                // Calculate total
+                var total = subtotal + tax;
+                total = Math.round(total * 100) / 100;
+                oModel.setProperty("/amounts/total", total);
+            } catch(error) {
+                console.error("Error recalculating totals:", error);
+            }
+        }
+        
+        // Function to submit user feedback on extraction
+        window.submitFeedback = function() {
+            try {
+                // Get feedback data
+                var comments = sap.ui.getCore().byId("feedbackComments").getValue();
+                var customPrompt = sap.ui.getCore().byId("feedbackPrompt").getValue();
+                
+                // Check which fields were marked as problematic
+                var problemFields = [];
+                if (sap.ui.getCore().byId("cbDocType").getSelected()) problemFields.push("document_type");
+                if (sap.ui.getCore().byId("cbDocNumber").getSelected()) problemFields.push("document_number");
+                if (sap.ui.getCore().byId("cbDate").getSelected()) problemFields.push("date");
+                if (sap.ui.getCore().byId("cbVendor").getSelected()) problemFields.push("vendor_information");
+                if (sap.ui.getCore().byId("cbLineItems").getSelected()) problemFields.push("line_items");
+                if (sap.ui.getCore().byId("cbAmounts").getSelected()) problemFields.push("amounts");
+                
+                // Get current extraction data
+                var oModel = sap.ui.getCore().getModel();
+                var extractedData = oModel.getData();
+                
+                // Debug extraction data to see if documentId exists
+                console.log("Extraction data for feedback:", extractedData);
+                
+                // Store documentId from model or directly from window if available
+                var documentId = extractedData.documentId;
+                
+                // If documentId is missing, look for it in the raw response
+                if (!documentId && window.lastProcessedDocumentId) {
+                    documentId = window.lastProcessedDocumentId;
+                    console.log("Using documentId from window:", documentId);
+                }
+                
+                // Create feedback payload
+                var feedbackData = {
+                    documentId: documentId || "unknown_" + new Date().getTime(),
+                    comments: comments,
+                    problemFields: problemFields,
+                    customPrompt: customPrompt,
+                    extractionData: extractedData
+                };
+                
+                console.log("Feedback data:", feedbackData);
+                
+                // Submit feedback to server
+                fetch("/document/feedback", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(feedbackData)
+                })
+                .then(function(response) {
+                    if (!response.ok) {
+                        throw new Error("Error submitting feedback: " + response.status);
+                    }
+                    return response.json();
+                })
+                .then(function(data) {
+                    // Show success message
+                    sap.m.MessageToast.show("Thank you for your feedback!");
+                    
+                    // Clear the form
+                    sap.ui.getCore().byId("feedbackComments").setValue("");
+                    sap.ui.getCore().byId("feedbackPrompt").setValue("");
+                    sap.ui.getCore().byId("cbDocType").setSelected(false);
+                    sap.ui.getCore().byId("cbDocNumber").setSelected(false);
+                    sap.ui.getCore().byId("cbDate").setSelected(false);
+                    sap.ui.getCore().byId("cbVendor").setSelected(false);
+                    sap.ui.getCore().byId("cbLineItems").setSelected(false);
+                    sap.ui.getCore().byId("cbAmounts").setSelected(false);
+                    
+                    // Close the panel
+                    sap.ui.getCore().byId("feedbackPanel").setExpanded(false);
+                })
+                .catch(function(error) {
+                    console.error("Error submitting feedback:", error);
+                    sap.m.MessageBox.error("Failed to submit feedback: " + error.message);
+                });
+            } catch (err) {
+                console.error("Error in submitFeedback:", err);
+                sap.m.MessageBox.error("Error processing feedback: " + err.message);
+            }
+        };
+        
+        // Function to validate data before creating purchase order
+        function validateData() {
+            try {
+                // First recalculate totals to ensure they are up to date
+                recalculateTotals();
+                
+                // If we're in edit mode, switch to view mode to save changes first
+                var saveButton = sap.ui.getCore().byId("saveButton");
+                var isInEditMode = saveButton && saveButton.getVisible();
+                if (isInEditMode) {
+                    // Save the changes first
+                    toggleEditMode(false);
+                    // Show message about exiting edit mode
+                    sap.m.MessageToast.show("Exited edit mode to validate data");
+                }
+                
+                var oModel = sap.ui.getCore().getModel();
+                var extractedData = oModel.getData();
+                var errorMessages = [];
+                
+                // Check document info
+                if (!extractedData.document_type) {
+                    errorMessages.push("Document Type is required");
+                }
+                
+                if (!extractedData.document_number) {
+                    errorMessages.push("Document Number is required");
+                }
+                
+                if (!extractedData.date) {
+                    errorMessages.push("Document Date is required");
+                }
+                
+                // Check vendor info
+                if (!extractedData.vendor_information || !extractedData.vendor_information.name) {
+                    errorMessages.push("Vendor Name is required");
+                }
+                
+                // Check line items
+                if (!extractedData.line_items || extractedData.line_items.length === 0) {
+                    errorMessages.push("At least one line item is required");
+                } else {
+                    // Check each line item
+                    extractedData.line_items.forEach(function(item, index) {
+                        if (item.description || item.item_number) {
+                            // Only validate non-empty line items
+                            if (!item.description) {
+                                errorMessages.push(`Line item #${index + 1} requires a description`);
+                            }
+                            
+                            if (isNaN(parseFloat(item.quantity)) || parseFloat(item.quantity) <= 0) {
+                                errorMessages.push(`Line item #${index + 1}: Quantity must be a positive number`);
+                            }
+                            
+                            if (isNaN(parseFloat(item.unit_cost)) || parseFloat(item.unit_cost) < 0) {
+                                errorMessages.push(`Line item #${index + 1}: Unit Cost must be a non-negative number`);
+                            }
+                            
+                            if (isNaN(parseFloat(item.amount)) || parseFloat(item.amount) < 0) {
+                                errorMessages.push(`Line item #${index + 1}: Amount must be a non-negative number`);
+                            }
+                            
+                            // Check if amount = quantity * unit_cost (with small tolerance for floating point errors)
+                            var calculatedAmount = parseFloat(item.quantity) * parseFloat(item.unit_cost);
+                            var declaredAmount = parseFloat(item.amount);
+                            if (Math.abs(calculatedAmount - declaredAmount) > 0.01) {
+                                // Update the amount to match calculation
+                                item.amount = calculatedAmount;
+                            }
+                        }
+                    });
+                    
+                    // Update the line items in the model
+                    oModel.setProperty("/line_items", extractedData.line_items);
+                }
+                
+                // If there are validation errors, show them
+                if (errorMessages.length > 0) {
+                    var errorMessage = "Please correct the following issues:\n\n• " + errorMessages.join("\n• ");
+                    sap.m.MessageBox.error(errorMessage, {
+                        title: "Validation Errors"
+                    });
+                    return false;
+                }
+                
+                return true;
+            } catch(error) {
+                console.error("Error validating data:", error);
+                sap.m.MessageBox.error("Error validating data: " + error.message);
+                return false;
+            }
+        }
+        
+        // Function to create S/4HANA payload from extraction result
+        function createS4Payload(extractedData) {
+            // This function maps the extracted document data to S/4HANA purchase order structure
+            // This is a simplified example that would need to be adjusted for actual S/4HANA API
+            
+            try {
+                var payload = {
+                    PurchaseOrder: {
+                        CompanyCode: "1000", // Default company code
+                        PurchaseOrderType: "NB", // Standard PO
+                        Supplier: "VENDOR_ID", // This would typically be looked up in a vendor master
+                        PurchasingOrganization: "1000",
+                        PurchasingGroup: "001",
+                        DocumentDate: extractedData.date || new Date().toISOString().split('T')[0],
+                        DocumentNumber: extractedData.document_number || "",
+                        DocumentType: extractedData.document_type || "PURCHASE_ORDER",
+                        
+                        // Add vendor information if available
+                        SupplierDetails: extractedData.vendor_information ? {
+                            Name: extractedData.vendor_information.name,
+                            Address: extractedData.vendor_information.address,
+                            ContactInfo: extractedData.vendor_information.contact
+                        } : undefined,
+                        
+                        // Add customer information if available
+                        CustomerDetails: extractedData.customer_information ? {
+                            Name: extractedData.customer_information.name,
+                            Address: extractedData.customer_information.address,
+                            ContactInfo: extractedData.customer_information.contact
+                        } : undefined,
+                        
+                        // Add payment information if available
+                        PaymentDetails: extractedData.payment_information ? {
+                            Terms: extractedData.payment_information.terms,
+                            DueDate: extractedData.payment_information.due_date,
+                            Method: extractedData.payment_information.method
+                        } : undefined,
+                        
+                        // Add amount details if available
+                        AmountDetails: extractedData.amounts ? {
+                            Subtotal: extractedData.amounts.subtotal,
+                            Tax: extractedData.amounts.tax,
+                            Total: extractedData.amounts.total
+                        } : undefined,
+                        
+                        // Map line items
+                        PurchaseOrderItems: []
+                    }
+                };
+                
+                // Add line items if available
+                if (extractedData.line_items && extractedData.line_items.length > 0) {
+                    extractedData.line_items.forEach(function(item, index) {
+                        // Skip empty items (those with no description or item number)
+                        if (!item.description && !item.item_number) {
+                            return;
+                        }
+                        
+                        payload.PurchaseOrder.PurchaseOrderItems.push({
+                            PurchaseOrderItem: (index + 1) * 10, // 10, 20, 30...
+                            Material: item.item_number || "MAT" + (index + 1),
+                            Description: item.description || "",
+                            Quantity: parseFloat(item.quantity) || 0,
+                            QuantityUnit: item.unit_measure || "EA",
+                            NetPrice: parseFloat(item.unit_cost) || 0,
+                            Currency: "USD", // Default currency
+                            DeliveryDate: new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0] // 30 days from now
+                        });
+                    });
+                }
+                
+                return payload;
+            } catch(error) {
+                console.error("Error creating S/4HANA payload:", error);
+                return { error: "Error creating payload: " + error.message };
+            }
+        }
+        
+        // Function to upload file
+        window.uploadFile = function() {
+            try {
+                var fileInput = document.getElementById("fileInput");
+                var statusText = sap.ui.getCore().byId("statusText");
+                var busyIndicator = sap.ui.getCore().byId("busyIndicator");
+                var uploadButton = sap.ui.getCore().byId("uploadButton");
+                var resultLayout = sap.ui.getCore().byId("resultLayout");
+                
+                // Debug output
+                console.log("File input element:", fileInput);
+                console.log("Files selected:", fileInput ? fileInput.files.length : 0);
+                
+                if (!fileInput || !fileInput.files.length) {
+                    statusText.setText("Please select a file first");
+                    return;
+                }
+                
+                var file = fileInput.files[0];
+                console.log("Selected file:", file.name, "Type:", file.type, "Size:", file.size);
+                
+                var formData = new FormData();
+                formData.append("file", file);
+                
+                // Show busy indicator
+                busyIndicator.setVisible(true);
+                uploadButton.setEnabled(false);
+                statusText.setText("Uploading document...");
+                
+                // Hide any previous results
+                resultLayout.setVisible(false);
+                
+                // Upload the file
+                fetch("/document/upload", {
+                    method: "POST",
+                    body: formData,
+                    // Don't set Content-Type header - browser will set it with the correct boundary
+                })
+                .then(function(response) {
+                    console.log("Upload response status:", response.status);
+                    if (!response.ok) {
+                        throw new Error("Server returned status: " + response.status);
+                    }
+                    return response.json();
+                })
+                .then(function(data) {
+                    console.log("Upload response data:", data);
+                    if (!data.success) {
+                        throw new Error(data.message || "Upload failed");
+                    }
+                    
+                    // Store documentId in a window variable for later use
+                    window.lastProcessedDocumentId = data.documentId;
+                    console.log("Saved document ID:", window.lastProcessedDocumentId);
+                    
+                    statusText.setText("Document uploaded. Processing...");
+                    
+                    // Process the document
+                    return fetch("/document/processDocument", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            documentId: data.documentId
+                        })
+                    });
+                })
+                .then(function(response) {
+                    console.log("Process response status:", response.status);
+                    if (!response.ok) {
+                        throw new Error("Server returned status: " + response.status);
+                    }
+                    return response.json();
+                })
+                .then(function(data) {
+                    console.log("Process response data:", data);
+                    busyIndicator.setVisible(false);
+                    uploadButton.setEnabled(true);
+                    
+                    if (!data.success) {
+                        throw new Error(data.message || "Processing failed");
+                    }
+                    
+                    statusText.setText("Document processed successfully!");
+                    
+                    try {
+                        // Handle different response formats
+                        var resultObj;
+                        if (typeof data.result === 'object') {
+                            resultObj = data.result;
+                        } else if (typeof data.result === 'string') {
+                            resultObj = JSON.parse(data.result);
+                        } else {
+                            resultObj = { message: "Unknown result format" };
+                        }
+                        
+                        // Update raw JSON display
+                        sap.ui.getCore().byId("rawJsonTextarea").setValue(JSON.stringify(resultObj, null, 2));
+                        sap.ui.getCore().byId("rawJsonPanel").setVisible(true);
+                        
+                        // Log the full result object to see if confidence data is present
+                        console.log("Full extraction result:", resultObj);
+                        console.log("Confidence data:", resultObj.confidence);
+                        
+                        // Update the model with the extraction results
+                        var oModel = sap.ui.getCore().getModel();
+                        
+                        // Add documentId to the result object if we have it stored
+                        if (window.lastProcessedDocumentId && !resultObj.documentId) {
+                            resultObj.documentId = window.lastProcessedDocumentId;
+                            console.log("Added documentId to result object:", resultObj.documentId);
+                        }
+                        
+                        oModel.setData(resultObj);
+                        
+                        // Update document status
+                        oModel.setProperty("/documentStatus", {
+                            text: "Processed",
+                            state: "Success",
+                            icon: "sap-icon://document"
+                        });
+                        
+                        // Update UI components visibility based on data presence
+                        sap.ui.getCore().byId("objectHeader").setVisible(true);
+                        sap.ui.getCore().byId("objectHeader").setTitle(resultObj.document_type || "Document");
+                        
+                        sap.ui.getCore().byId("docInfoForm").setVisible(true);
+                        sap.ui.getCore().byId("vendorForm").setVisible(!!resultObj.vendor_information);
+                        sap.ui.getCore().byId("customerForm").setVisible(!!resultObj.customer_information);
+                        sap.ui.getCore().byId("amountsForm").setVisible(!!resultObj.amounts);
+                        sap.ui.getCore().byId("paymentForm").setVisible(!!resultObj.payment_information);
+                        
+                        // Setup and show line items table if data exists
+                        if (resultObj.line_items && resultObj.line_items.length > 0) {
+                            var oLineItemsTable = sap.ui.getCore().byId("lineItemsTable");
+                            
+                            // Create a model that includes both line items and their confidence scores
+                            var aLineItemsWithConfidence = [];
+                            
+                            aLineItemsWithConfidence = resultObj.line_items.map(function(item, index) {
+                                // Clone the item so we don't modify the original
+                                var newItem = Object.assign({}, item);
+                                
+                                // Add confidence data if available
+                                if (resultObj.confidence && resultObj.confidence.line_items && 
+                                    resultObj.confidence.line_items[index]) {
+                                    newItem.confidence = resultObj.confidence.line_items[index];
+                                }
+                                return newItem;
+                            });
+                            
+                            console.log("Line items with confidence:", aLineItemsWithConfidence);
+                            
+                            var oLineItemsModel = new sap.ui.model.json.JSONModel(aLineItemsWithConfidence);
+                            oLineItemsTable.setModel(oLineItemsModel);
+                            oLineItemsTable.bindRows("/");
+                            oLineItemsTable.setVisibleRowCount(Math.min(resultObj.line_items.length, 10));
+                            oLineItemsTable.setVisible(true);
+                            
+                            // Force input fields to be read-only even after binding
+                            setTimeout(function() {
+                                try {
+                                    console.log("Ensuring all line item fields are read-only after data loading");
+                                    var rows = oLineItemsTable.getRows();
+                                    for (var i = 0; i < rows.length; i++) {
+                                        var cells = rows[i].getCells();
+                                        for (var j = 0; j < cells.length; j++) {
+                                            if (cells[j] instanceof sap.m.HBox) {
+                                                var items = cells[j].getItems();
+                                                for (var k = 0; k < items.length; k++) {
+                                                    if (items[k] instanceof sap.m.Input) {
+                                                        console.log("Setting input field to readonly at row " + i + ", cell " + j);
+                                                        // Only use setEditable - readonly property is not valid for sap.m.Input
+                                                        items[k].setEditable(false);
+                                                        // Removed setProperty("readonly") as it causes errors
+                                                        // Temporarily disable then re-enable to force UI refresh
+                                                        items[k].setEnabled(false);
+                                                        setTimeout((function(item) {
+                                                            return function() {
+                                                                item.setEnabled(true);
+                                                                item.setEditable(false);
+                                                                // Removed setProperty("readonly") as it causes errors
+                                                            }
+                                                        })(items[k]), 50);
+                                                    }
+                                                }
+                                            } else if (cells[j] instanceof sap.m.Input) {
+                                                console.log("Setting direct input to readonly at row " + i + ", cell " + j);
+                                                cells[j].setEditable(false);
+                                                // Removed setProperty("readonly") as it causes errors
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Force a second pass after a short delay
+                                    setTimeout(function() {
+                                        try {
+                                            console.log("Secondary pass to ensure read-only state");
+                                            for (var i = 0; i < rows.length; i++) {
+                                                var cells = rows[i].getCells();
+                                                for (var j = 0; j < cells.length; j++) {
+                                                    if (cells[j] instanceof sap.m.HBox) {
+                                                        var items = cells[j].getItems();
+                                                        for (var k = 0; k < items.length; k++) {
+                                                            if (items[k] instanceof sap.m.Input) {
+                                                                items[k].setEditable(false);
+                                                                // Removed setProperty("readonly") as it causes errors
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            // Also ensure table's overall editability is false
+                                            oLineItemsTable.setEditable(false);
+                                        } catch (innerError) {
+                                            console.error("Error in secondary read-only pass:", innerError);
+                                        }
+                                    }, 300);
+                                    
+                                } catch (error) {
+                                    console.error("Error setting line items to read-only:", error);
+                                }
+                            }, 200);
+                        } else {
+                            sap.ui.getCore().byId("lineItemsTable").setVisible(false);
+                        }
+                        
+                        // Show "Create Purchase Order" button if this is a purchase-related document
+                        var isPurchaseRelated = resultObj.document_type && 
+                            (resultObj.document_type.toLowerCase().includes("purchase") || 
+                             resultObj.document_type.toLowerCase().includes("order") ||
+                             resultObj.document_type.toLowerCase().includes("invoice"));
+                        
+                        sap.ui.getCore().byId("createPOButton").setVisible(isPurchaseRelated);
+                        
+                        // Reset PO status
+                        sap.ui.getCore().byId("poStatus").setVisible(false);
+                        
+                        // Show feedback panel
+                        const feedbackPanel = sap.ui.getCore().byId("feedbackPanel");
+                        feedbackPanel.setVisible(true);
+                        feedbackPanel.setExpanded(true);
+                        
+                        // Show results
+                        resultLayout.setVisible(true);
+                        
+                    } catch(e) {
+                        console.error("Error parsing result:", e);
+                        // Show error message
+                        statusText.setText("Error parsing extraction results: " + e.message);
+                    }
+                })
+                .catch(function(error) {
+                    console.error("Upload/processing error:", error);
+                    busyIndicator.setVisible(false);
+                    uploadButton.setEnabled(true);
+                    statusText.setText("Error: " + error.message);
+                });
+            } catch (err) {
+                console.error("Error in upload function:", err);
+                sap.ui.getCore().byId("statusText").setText("Error: " + err.message);
+                sap.ui.getCore().byId("busyIndicator").setVisible(false);
+                sap.ui.getCore().byId("uploadButton").setEnabled(true);
+            }
+        };
+    </script>
+</head>
+<body class="sapUiBody">
+    <div id="content">
+        <!-- Fallback content if UI5 doesn't load -->
+        <div id="loadingMessage">Loading Fiori application...</div>
+    </div>
+</body>
+</html>

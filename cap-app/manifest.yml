@@ -1,0 +1,11 @@
+---
+applications:
+  - name: document-extractor
+    memory: 256M
+    instances: 1
+    buildpacks:
+      - nodejs_buildpack
+    command: npm run start
+    env:
+      NODE_ENV: production
+      # Do not set sensitive credentials here - use service bindings or environment variables in BTP

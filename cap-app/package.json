@@ -1,0 +1,62 @@
+{
+  "name": "document-extractor-app",
+  "version": "1.0.0",
+  "description": "Document Extraction Application using SAP AI Core",
+  "repository": "<Add your repository here>",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@sap/cds": "^7",
+    "@sap/xsenv": "^3.4.0",
+    "@sap/hana-client": "^2.15.19",
+    "axios": "^1.6.2",
+    "dotenv": "^16.4.7",
+    "express": "^4",
+    "form-data": "^4.0.0",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^11.1.0"
+  },
+  "engines": {
+    "node": ">=14.x"
+  },
+  "devDependencies": {
+    "@sap/ux-specification": "^1.108.18",
+    "sqlite3": "^5.1.6"
+  },
+  "scripts": {
+    "start": "node ./node_modules/@sap/cds/bin/cds.js run",
+    "dev": "node ./node_modules/@sap/cds/bin/cds.js watch",
+    "debug": "node --inspect ./node_modules/@sap/cds/bin/cds.js run",
+    "server": "node server.js",
+    "express": "node express-server.js"
+  },
+  "cds": {
+    "requires": {
+      "db": {
+        "[development]": {
+          "kind": "sqlite",
+          "credentials": {
+            "database": "sqlite.db"
+          }
+        },
+        "[production]": {
+          "kind": "hana"
+        }
+      }
+    },
+    "hana": {
+      "deploy-format": "hdbtable"
+    },
+    "serve": {
+      "static": [
+        { "path": "/app", "root": "app" }
+      ]
+    }
+  },
+  "sapux": [
+    "app/document-uploader"
+  ],
+  "workspaces": [
+    "app/*"
+  ]
+}

@@ -1,0 +1,166 @@
+{
+  "documentId": "c1caf55d-25ec-4550-bf73-d4cb22defef8",
+  "comments": "the extraction is good",
+  "problemFields": [],
+  "customPrompt": "the extraction is good",
+  "extractionData": {
+    "document_type": "PURCHASE ORDER",
+    "document_number": "40440566",
+    "date": "03-13-25",
+    "vendor_information": {
+      "name": "JAMES HARDIE BLDG PRODUCTS",
+      "address": "26300 LA ALAMEDA SUITE 400 MISSION VIEJO, CA 92691",
+      "phone": "949-348-4448"
+    },
+    "customer_information": {
+      "name": "BUILDERS FIRSTSOURCE",
+      "address": "PO BOX 25178 LEHIGH VALLEY, PA 18002-5178",
+      "ship_to": "NEW BRAUNFELS TX YARD 3620 FM 482 NEW BRAUNFELS, TX 78132"
+    },
+    "amounts": {},
+    "line_items": [
+      {
+        "item_number": "HZ1012SS",
+        "quantity": 200,
+        "unit_measure": "EA",
+        "description": "SOF PR SMOOTH 12X12' 1'X12'X1/4\" NON-VENTED SMOOTH 217521",
+        "unit_cost": 1174,
+        "amount": 2817.6
+      },
+      {
+        "item_number": "HZ1048SS",
+        "quantity": 50,
+        "unit_measure": "EA",
+        "description": "SOF PR SMOOTH 4'X8' 4'X8'X1/4\" NON-VENTED SMOOTH 217505",
+        "unit_cost": 1174,
+        "amount": 1878.4
+      },
+      {
+        "item_number": "HZ1048S8P",
+        "quantity": 50,
+        "unit_measure": "EA",
+        "description": "PAN PR CM SIE8 4X8 4'X8'X5/16\" SIERRA 217863",
+        "unit_cost": 1155,
+        "amount": 1848
+      },
+      {
+        "item_number": "HZ1048STP",
+        "quantity": 50,
+        "unit_measure": "EA",
+        "description": "PAN PR STUCCO HZ10 4X8 4'X8'X5/16\" STUCCO 217601",
+        "unit_cost": 1155,
+        "amount": 1848
+      },
+      {
+        "item_number": "HZ10714SMP",
+        "quantity": 150,
+        "unit_measure": "EA",
+        "description": "PLK PR SM HZ10 7.25X12' 7.25\"X12'X5/16\" SMOOTH 215610",
+        "unit_cost": 1268,
+        "amount": 1378.95
+      },
+      {
+        "item_number": "HZ101412SEST",
+        "quantity": 322,
+        "unit_measure": "EA",
+        "description": "TRM 4/4 PR SE SM HZ10 3.5X12' 4/4\"X3.5\"X12' SMOOTH 9000040",
+        "unit_cost": 3165,
+        "amount": 3566.96
+      },
+      {
+        "item_number": "HZ101812SEST",
+        "quantity": 138,
+        "unit_measure": "EA",
+        "description": "TRM 4/4 PR SE SM HZ10 7.25X12 4/4\"X7.25\"X12' SMOOTH 9000042",
+        "unit_cost": 3165,
+        "amount": 3166.58
+      }
+    ],
+    "payment_information": {
+      "terms": "1%5/25TH"
+    },
+    "confidence": {
+      "document_type": 1,
+      "document_number": 1,
+      "date": 1,
+      "vendor_information": {
+        "name": 1,
+        "address": 0.95,
+        "phone": 1
+      },
+      "customer_information": {
+        "name": 1,
+        "address": 1,
+        "ship_to": 0.95
+      },
+      "amounts": {},
+      "line_items": [
+        {
+          "item_number": 1,
+          "quantity": 1,
+          "unit_measure": 1,
+          "description": 0.95,
+          "unit_cost": 1,
+          "amount": 1
+        },
+        {
+          "item_number": 1,
+          "quantity": 1,
+          "unit_measure": 1,
+          "description": 0.95,
+          "unit_cost": 1,
+          "amount": 1
+        },
+        {
+          "item_number": 1,
+          "quantity": 1,
+          "unit_measure": 1,
+          "description": 0.95,
+          "unit_cost": 1,
+          "amount": 1
+        },
+        {
+          "item_number": 1,
+          "quantity": 1,
+          "unit_measure": 1,
+          "description": 0.95,
+          "unit_cost": 1,
+          "amount": 1
+        },
+        {
+          "item_number": 1,
+          "quantity": 1,
+          "unit_measure": 1,
+          "description": 0.95,
+          "unit_cost": 1,
+          "amount": 1
+        },
+        {
+          "item_number": 1,
+          "quantity": 1,
+          "unit_measure": 1,
+          "description": 0.95,
+          "unit_cost": 1,
+          "amount": 1
+        },
+        {
+          "item_number": 1,
+          "quantity": 1,
+          "unit_measure": 1,
+          "description": 0.95,
+          "unit_cost": 1,
+          "amount": 1
+        }
+      ],
+      "payment_information": {
+        "terms": 1
+      }
+    },
+    "documentId": "c1caf55d-25ec-4550-bf73-d4cb22defef8",
+    "documentStatus": {
+      "text": "Processed",
+      "state": "Success",
+      "icon": "sap-icon://document"
+    }
+  }
+}

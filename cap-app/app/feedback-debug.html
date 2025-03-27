@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feedback Debug Page</title>
+    
+    <!-- Load UI5 with explicit version -->
+    <script id="sap-ui-bootstrap"
+        src="https://sapui5.hana.ondemand.com/1.120.5/resources/sap-ui-core.js"
+        data-sap-ui-theme="sap_horizon"
+        data-sap-ui-libs="sap.m, sap.ui.layout, sap.f, sap.ui.table"
+        data-sap-ui-compatVersion="edge"
+        data-sap-ui-flexEnabled="true"
+        data-sap-ui-async="true"
+        data-sap-ui-resourceroots='{"docextractor": "./"}'
+        data-sap-ui-onInit="initApp">
+    </script>
+    
+    <style>
+        .feedback-container {
+            margin: 20px;
+        }
+        .json-content {
+            font-family: monospace;
+            white-space: pre-wrap;
+            background-color: #f5f5f5;
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+    
+    <!-- Application initialization -->
+    <script>
+        function initApp() {
+            try {
+                console.log("Initializing UI5 application...");
+                
+                // Create a shell container for Fiori launchpad-like experience
+                var oShell = new sap.m.Shell({
+                    appWidthLimited: false,
+                    app: new sap.m.App("myApp", {
+                        initialPage: "page1"
+                    })
+                });
+                
+                // Create a panel to display feedback entries
+                var oFeedbackPanel = new sap.m.Panel("feedbackPanel", {
+                    headerText: "Feedback Entries",
+                    expandable: false,
+                    expanded: true,
+                    width: "100%",
+                    content: [
+                        new sap.m.Text("loadingText", {
+                            text: "Loading feedback entries..."
+                        })
+                    ]
+                });
+                
+                // Create main page layout
+                var oPage = new sap.m.Page("page1", {
+                    title: "Document Extraction Feedback Debug",
+                    headerContent: [
+                        new sap.m.Button({
+                            text: "Refresh",
+                            icon: "sap-icon://refresh",
+                            press: function() {
+                                loadFeedbackEntries();
+                            }
+                        })
+                    ],
+                    content: [
+                        new sap.m.Panel({
+                            headerText: "Feedback History",
+                            expandable: false,
+                            expanded: true,
+                            content: [
+                                new sap.m.Text({
+                                    text: "This page displays user feedback collected from the document extraction process. The feedback is used to improve extraction quality through Retrieval-Augmented Generation (RAG)."
+                                }).addStyleClass("sapUiSmallMarginTop sapUiSmallMarginBottom"),
+                                oFeedbackPanel
+                            ]
+                        })
+                    ],
+                    footer: new sap.m.Bar({
+                        contentMiddle: [
+                            new sap.m.Text({
+                                text: "Powered by SAP AI Core with Claude 3.5"
+                            })
+                        ]
+                    })
+                });
+                
+                // Add the page to the app and place it
+                sap.ui.getCore().byId("myApp").addPage(oPage);
+                oShell.placeAt("content");
+                
+                // Load feedback entries
+                loadFeedbackEntries();
+                
+                console.log("UI5 application initialized successfully");
+            } catch (err) {
+                console.error("Error initializing UI5 application:", err);
+                document.getElementById('content').innerHTML = 
+                    '<div style="color:red;padding:20px;">Error initializing UI5: ' + err.message + '</div>';
+            }
+        }
+        
+        function loadFeedbackEntries() {
+            console.log("Loading feedback entries...");
+            
+            // Clear existing content
+            var oFeedbackPanel = sap.ui.getCore().byId("feedbackPanel");
+            oFeedbackPanel.removeAllContent();
+            oFeedbackPanel.addContent(new sap.m.Text({
+                text: "Loading feedback entries..."
+            }));
+            
+            // Fetch feedback index from server
+            fetch("/feedback/index")
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error("Error loading feedback: " + response.status);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log("Feedback data loaded:", data);
+                    displayFeedbackEntries(data);
+                })
+                .catch(error => {
+                    console.error("Error loading feedback:", error);
+                    oFeedbackPanel.removeAllContent();
+                    oFeedbackPanel.addContent(new sap.m.Text({
+                        text: "Error loading feedback: " + error.message
+                    }));
+                });
+        }
+        
+        function displayFeedbackEntries(feedbackData) {
+            var oFeedbackPanel = sap.ui.getCore().byId("feedbackPanel");
+            oFeedbackPanel.removeAllContent();
+            
+            if (!feedbackData || feedbackData.length === 0) {
+                oFeedbackPanel.addContent(new sap.m.Text({
+                    text: "No feedback entries found. Process some documents and provide feedback to see data here."
+                }));
+                return;
+            }
+            
+            // Create a list to display feedback entries
+            var oList = new sap.m.List({
+                mode: "None",
+                headerText: `${feedbackData.length} Feedback Entries`,
+                items: []
+            });
+            
+            // Sort entries by timestamp (newest first)
+            feedbackData.sort((a, b) => {
+                return new Date(b.timestamp) - new Date(a.timestamp);
+            });
+            
+            // Add entries to the list
+            feedbackData.forEach(function(entry) {
+                var timestampStr = new Date(entry.timestamp).toLocaleString();
+                
+                var oCustomListItem = new sap.m.CustomListItem({
+                    content: [
+                        new sap.m.VBox({
+                            items: [
+                                new sap.m.HBox({
+                                    items: [
+                                        new sap.m.ObjectStatus({
+                                            title: "Document Type",
+                                            text: entry.documentType || "Unknown",
+                                            state: "Information"
+                                        }),
+                                        new sap.m.ObjectStatus({
+                                            title: "Timestamp",
+                                            text: timestampStr,
+                                            state: "None"
+                                        }).addStyleClass("sapUiSmallMarginBegin")
+                                    ]
+                                }),
+                                new sap.m.HBox({
+                                    items: [
+                                        new sap.m.ObjectStatus({
+                                            title: "Has Comments",
+                                            text: entry.hasComments ? "Yes" : "No",
+                                            state: entry.hasComments ? "Success" : "None"
+                                        }),
+                                        new sap.m.ObjectStatus({
+                                            title: "Has Custom Prompt",
+                                            text: entry.hasCustomPrompt ? "Yes" : "No",
+                                            state: entry.hasCustomPrompt ? "Success" : "None"
+                                        }).addStyleClass("sapUiSmallMarginBegin")
+                                    ]
+                                }).addStyleClass("sapUiTinyMarginTop"),
+                                new sap.m.Panel({
+                                    headerText: "Problem Fields",
+                                    expandable: true,
+                                    expanded: false,
+                                    content: [
+                                        new sap.m.Text({
+                                            text: entry.problemFields && entry.problemFields.length > 0 
+                                                ? entry.problemFields.join(", ") 
+                                                : "None reported"
+                                        })
+                                    ]
+                                }).addStyleClass("sapUiTinyMarginTop"),
+                                new sap.m.Button({
+                                    text: "View Full Feedback",
+                                    press: function() {
+                                        loadFeedbackDetail(entry.feedbackId);
+                                    }
+                                }).addStyleClass("sapUiTinyMarginTop")
+                            ]
+                        }).addStyleClass("sapUiSmallMarginTop sapUiSmallMarginBottom")
+                    ]
+                });
+                
+                oList.addItem(oCustomListItem);
+            });
+            
+            oFeedbackPanel.addContent(oList);
+        }
+        
+        function loadFeedbackDetail(feedbackId) {
+            console.log("Loading feedback detail for ID:", feedbackId);
+            
+            // Fetch feedback detail from server
+            fetch(`/feedback/detail/${feedbackId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error("Error loading feedback detail: " + response.status);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log("Feedback detail loaded:", data);
+                    showFeedbackDetailDialog(data);
+                })
+                .catch(error => {
+                    console.error("Error loading feedback detail:", error);
+                    sap.m.MessageBox.error("Error loading feedback detail: " + error.message);
+                });
+        }
+        
+        function showFeedbackDetailDialog(feedbackData) {
+            // Create dialog to display feedback detail
+            var oDialog = new sap.m.Dialog({
+                title: "Feedback Detail",
+                contentWidth: "800px",
+                contentHeight: "600px",
+                content: [
+                    new sap.m.VBox({
+                        width: "100%",
+                        height: "100%",
+                        items: [
+                            new sap.m.Panel({
+                                headerText: "User Comments",
+                                content: [
+                                    new sap.m.Text({
+                                        text: feedbackData.comments || "No comments provided"
+                                    })
+                                ]
+                            }),
+                            new sap.m.Panel({
+                                headerText: "Custom Prompt",
+                                content: [
+                                    new sap.m.Text({
+                                        text: feedbackData.customPrompt || "No custom prompt provided"
+                                    })
+                                ]
+                            }),
+                            new sap.m.Panel({
+                                headerText: "Problem Fields",
+                                content: [
+                                    new sap.m.Text({
+                                        text: feedbackData.problemFields && feedbackData.problemFields.length > 0 
+                                            ? feedbackData.problemFields.join(", ") 
+                                            : "None reported"
+                                    })
+                                ]
+                            }),
+                            new sap.m.Panel({
+                                headerText: "Extraction Data",
+                                expandable: true,
+                                expanded: false,
+                                content: [
+                                    new sap.m.Text({
+                                        text: JSON.stringify(feedbackData.extractionData, null, 2)
+                                    }).addStyleClass("json-content")
+                                ]
+                            })
+                        ]
+                    })
+                ],
+                beginButton: new sap.m.Button({
+                    text: "Close",
+                    press: function() {
+                        oDialog.close();
+                    }
+                }),
+                afterClose: function() {
+                    oDialog.destroy();
+                }
+            });
+            
+            oDialog.open();
+        }
+    </script>
+</head>
+<body class="sapUiBody">
+    <div id="content">
+        <!-- Fallback content if UI5 doesn't load -->
+        <div id="loadingMessage">Loading Fiori application...</div>
+    </div>
+</body>
+</html>

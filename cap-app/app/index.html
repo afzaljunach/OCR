@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Extractor App</title>
+    <script src="https://sapui5.hana.ondemand.com/resources/sap-ui-core.js" 
+            id="sap-ui-bootstrap" 
+            data-sap-ui-theme="sap_horizon" 
+            data-sap-ui-libs="sap.m"
+            data-sap-ui-compatVersion="edge" 
+            data-sap-ui-async="true">
+    </script>
+    <style>
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .card {
+            background: #fff;
+            border-radius: 4px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+            padding: 20px;
+        }
+        .title {
+            color: #0070f2;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        .subtitle {
+            color: #6a6d70;
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+        .btn {
+            background-color: #0070f2;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 8px 16px;
+        }
+        .btn:hover {
+            background-color: #0058c6;
+        }
+        .btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .file-input {
+            margin-bottom: 20px;
+        }
+        #status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        #status.error {
+            background-color: #ffebee;
+            color: #d32f2f;
+        }
+        #status.success {
+            background-color: #e8f5e9;
+            color: #388e3c;
+        }
+        #status.info {
+            background-color: #e3f2fd;
+            color: #1976d2;
+        }
+        #result {
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            margin-top: 20px;
+            padding: 10px;
+            white-space: pre-wrap;
+            display: none;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,.1);
+            border-radius: 50%;
+            border-top-color: #0070f2;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="sapUiBody">
+    <div class="container">
+        <h1 class="title">Document Information Extractor</h1>
+        <p class="subtitle">Powered by SAP AI Core</p>
+        
+        <div class="card">
+            <h2>Upload Document</h2>
+            <p>Select a document (PDF, JPG, JPEG, PNG) to process with SAP AI Core Claude 3.5</p>
+            
+            <input type="file" id="fileInput" class="file-input" accept=".pdf,.jpg,.jpeg,.png">
+            <button id="uploadBtn" class="btn">Upload & Process</button>
+            <div id="status"></div>
+        </div>
+        
+        <div class="card">
+            <h2>Extraction Results</h2>
+            <div id="result"></div>
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const fileInput = document.getElementById('fileInput');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const statusDiv = document.getElementById('status');
+        const resultDiv = document.getElementById('result');
+        
+        // Helper to show status messages with correct styling
+        function showStatus(message, type = 'info') {
+            statusDiv.textContent = message;
+            statusDiv.className = type; // error, success, or info
+            
+            if (type === 'info' && message.includes('processing')) {
+                // Add loading spinner for processing messages
+                const loadingSpinner = document.createElement('span');
+                loadingSpinner.className = 'loading';
+                statusDiv.prepend(loadingSpinner);
+            }
+        }
+        
+        uploadBtn.addEventListener('click', async function() {
+            if (!fileInput.files.length) {
+                showStatus('Please select a file', 'error');
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            
+            // Check file type
+            const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+            if (!allowedTypes.includes(file.type)) {
+                showStatus('Only PDF, JPG, and PNG files are supported', 'error');
+                return;
+            }
+            
+            // Check file size (max 10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                showStatus('File size exceeds the 10MB limit', 'error');
+                return;
+            }
+            
+            // Disable button during upload
+            uploadBtn.disabled = true;
+            resultDiv.style.display = 'none';
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            showStatus('Uploading document...', 'info');
+            
+            try {
+                // Upload file
+                const uploadResponse = await fetch('/document/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const uploadData = await uploadResponse.json();
+                
+                if (!uploadResponse.ok || !uploadData.success) {
+                    throw new Error(uploadData.message || 'Upload failed');
+                }
+                
+                showStatus('Document uploaded. Processing...', 'info');
+                
+                // Process document
+                const processResponse = await fetch('/document/processDocument', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ documentId: uploadData.documentId })
+                });
+                
+                const processData = await processResponse.json();
+                
+                if (!processResponse.ok || !processData.success) {
+                    throw new Error(processData.message || 'Processing failed');
+                }
+                
+                showStatus('Document processed successfully!', 'success');
+                
+                // Display result
+                try {
+                    // Try to display result as formatted JSON
+                    const resultObj = JSON.parse(processData.result);
+                    resultDiv.textContent = JSON.stringify(resultObj, null, 2);
+                } catch (e) {
+                    // Fallback to showing as-is if not valid JSON
+                    resultDiv.textContent = processData.result;
+                }
+                
+                resultDiv.style.display = 'block';
+                
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+                console.error('Processing error:', error);
+            } finally {
+                // Re-enable button
+                uploadBtn.disabled = false;
+            }
+        });
+        
+        // Enable upload button when a file is selected
+        fileInput.addEventListener('change', function() {
+            if (fileInput.files.length) {
+                uploadBtn.disabled = false;
+                statusDiv.textContent = '';
+                statusDiv.className = '';
+            }
+        });
+    });
+    </script>
+</body>
+</html>

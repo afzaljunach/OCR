@@ -1,0 +1,11 @@
+<mvc:View
+    controllerName="com.docextractor.uploader.controller.App"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    displayBlock="true">
+    
+    <App id="app">
+        <!-- Content is inserted here by the router -->
+    </App>
+    
+</mvc:View>
